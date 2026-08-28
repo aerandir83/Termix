@@ -42,6 +42,7 @@ export const OWNER_PRIVATE_AUTH_FIELDS = {
     "telnetUser",
     "telnetPassword",
   ],
+  ard: ["ardAuthType", "ardCredentialId", "ardUser", "ardPassword"],
 } as const satisfies Record<AuthOverrideProtocol, readonly string[]>;
 
 export const OWNER_PRIVATE_TERMINAL_CONFIG_FIELDS = [

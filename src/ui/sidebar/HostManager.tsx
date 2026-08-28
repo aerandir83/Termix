@@ -99,6 +99,7 @@ export function HostManager({
     enableRdp: false,
     enableVnc: false,
     enableTelnet: false,
+    enableArd: false,
   });
   const simpleEditor = useUiPreference("hostEditor", "mode") === "simple";
   // Expanding advanced is a per-session choice; fixing one host's SSH options
@@ -139,6 +140,7 @@ export function HostManager({
           enableRdp: host.enableRdp,
           enableVnc: host.enableVnc,
           enableTelnet: host.enableTelnet,
+          enableArd: host.enableArd,
         });
         return true;
       }
@@ -197,6 +199,7 @@ export function HostManager({
           enableRdp: false,
           enableVnc: false,
           enableTelnet: false,
+          enableArd: false,
         });
         setActiveHostTab("general");
       } else if (action === "add-credential") {
@@ -217,6 +220,7 @@ export function HostManager({
         enableRdp: false,
         enableVnc: false,
         enableTelnet: false,
+        enableArd: false,
       });
       setActiveHostTab("general");
     };
@@ -237,6 +241,7 @@ export function HostManager({
           enableRdp: host.enableRdp,
           enableVnc: host.enableVnc,
           enableTelnet: host.enableTelnet,
+          enableArd: host.enableArd,
         });
       }
     };
@@ -421,6 +426,7 @@ export function HostManager({
           if (tab.id === "rdp") return editingProtocols.enableRdp;
           if (tab.id === "vnc") return editingProtocols.enableVnc;
           if (tab.id === "telnet") return editingProtocols.enableTelnet;
+          if (tab.id === "ard") return editingProtocols.enableArd;
           return false;
         })
       : makeCredentialTabs(t);

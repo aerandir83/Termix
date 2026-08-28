@@ -38,10 +38,12 @@ function sshHostToMinimalHost(h: SSHHost): Host {
     enableRdp: h.enableRdp ?? false,
     enableVnc: h.enableVnc ?? false,
     enableTelnet: h.enableTelnet ?? false,
+    enableArd: h.enableArd ?? false,
     sshPort: h.sshPort ?? h.port,
     rdpPort: h.rdpPort ?? 3389,
     vncPort: h.vncPort ?? 5900,
     telnetPort: h.telnetPort ?? 23,
+    ardPort: h.ardPort ?? 5900,
     serverTunnels: [],
     quickActions: [],
   };

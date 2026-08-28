@@ -122,6 +122,7 @@ export async function getHostPassword(
     | "rdpPassword"
     | "vncPassword"
     | "telnetPassword"
+    | "ardPassword"
     | "key"
     | "keyPassword" = "password",
 ): Promise<string | null> {

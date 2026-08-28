@@ -184,7 +184,14 @@ export interface PingStatusConfig {
 }
 
 export type ActivityType =
-  "terminal" | "file_manager" | "docker" | "tunnel" | "rdp" | "vnc" | "telnet";
+  | "terminal"
+  | "file_manager"
+  | "docker"
+  | "tunnel"
+  | "rdp"
+  | "vnc"
+  | "telnet"
+  | "ard";
 
 export interface RecentActivityConfig {
   maxItems: number;
@@ -239,7 +246,8 @@ export type QuickConnectType =
   | "host-metrics"
   | "rdp"
   | "vnc"
-  | "telnet";
+  | "telnet"
+  | "ard";
 
 export interface QuickConnectConfig {
   hostIds: number[];

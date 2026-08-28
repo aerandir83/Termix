@@ -9,6 +9,7 @@ type RawSSHHost = SSHHostWithStatus & {
   hasRdpPassword?: boolean;
   hasVncPassword?: boolean;
   hasTelnetPassword?: boolean;
+  hasArdPassword?: boolean;
 };
 type HostQuickAction = Host["quickActions"][number];
 type HostJumpHost = NonNullable<Host["jumpHosts"]>[number];
@@ -99,12 +100,14 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
     enableVnc: h.enableVnc != null ? h.enableVnc : h.connectionType === "vnc",
     enableTelnet:
       h.enableTelnet != null ? h.enableTelnet : h.connectionType === "telnet",
+    enableArd: h.enableArd != null ? h.enableArd : h.connectionType === "ard",
     sshPort:
       h.sshPort ??
       (h.connectionType === "ssh" || !h.connectionType ? h.port : 22),
     rdpPort: h.rdpPort ?? (h.connectionType === "rdp" ? h.port : 3389),
     vncPort: h.vncPort ?? (h.connectionType === "vnc" ? h.port : 5900),
     telnetPort: h.telnetPort ?? (h.connectionType === "telnet" ? h.port : 23),
+    ardPort: h.ardPort ?? (h.connectionType === "ard" ? h.port : 5900),
     rdpAuthType:
       (h.rdpAuthType as "direct" | "credential") ??
       (h.rdpCredentialId ? "credential" : "direct"),
@@ -132,6 +135,14 @@ export function sshHostToHost(h: SSHHostWithStatus): Host {
     telnetUser: h.telnetUser,
     telnetPassword: h.telnetPassword ?? "",
     hasTelnetPassword: !!host.hasTelnetPassword || !!h.telnetPassword,
+    ardAuthType:
+      (h.ardAuthType as "direct" | "credential") ??
+      (h.ardCredentialId ? "credential" : "direct"),
+    ardCredentialId:
+      h.ardCredentialId != null ? String(h.ardCredentialId) : undefined,
+    ardPassword: h.ardPassword ?? "",
+    hasArdPassword: !!host.hasArdPassword || !!h.ardPassword,
+    ardUser: h.ardUser,
     quickActions: (h.quickActions ?? []).map((a) => ({
       name: a.name,
       snippetId: String(a.snippetId),

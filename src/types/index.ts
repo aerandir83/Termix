@@ -66,7 +66,7 @@ export interface LDAPProviderConfig {
 // HOST TYPES (SSH, RDP, VNC, Telnet)
 // ============================================================================
 
-export type ConnectionType = "ssh" | "rdp" | "vnc" | "telnet";
+export type ConnectionType = "ssh" | "rdp" | "vnc" | "telnet" | "ard";
 export type SSHAuthType =
   "password" | "key" | "credential" | "none" | "opkssh" | "tailscale";
 
@@ -196,7 +196,7 @@ export type Host = {
     delay?: number;
   }>;
 
-  connectionType?: "ssh" | "rdp" | "vnc" | "telnet";
+  connectionType?: "ssh" | "rdp" | "vnc" | "telnet" | "ard";
   domain?: string;
   security?: string;
   ignoreCert?: boolean;
@@ -207,10 +207,12 @@ export type Host = {
   enableRdp?: boolean;
   enableVnc?: boolean;
   enableTelnet?: boolean;
+  enableArd?: boolean;
   sshPort?: number;
   rdpPort?: number;
   vncPort?: number;
   telnetPort?: number;
+  ardPort?: number;
   rdpCredentialId?: number | null;
   rdpUser?: string;
   rdpPassword?: string;
@@ -223,9 +225,13 @@ export type Host = {
   telnetUser?: string;
   telnetPassword?: string;
   telnetCredentialId?: number | null;
+  ardCredentialId?: number | null;
+  ardPassword?: string;
+  ardUser?: string;
   rdpAuthType?: "direct" | "credential" | "none" | null;
   vncAuthType?: "direct" | "credential" | null;
   telnetAuthType?: "direct" | "credential" | null;
+  ardAuthType?: "direct" | "credential" | null;
   /**
    * Stable identity across a desktop/server sync pair. `id` is an
    * autoincrement local to whichever database produced the row, so it cannot
@@ -355,7 +361,7 @@ export interface HostData {
     delay?: number;
   }>;
 
-  connectionType?: "ssh" | "rdp" | "vnc" | "telnet";
+  connectionType?: "ssh" | "rdp" | "vnc" | "telnet" | "ard";
   domain?: string;
   security?: string;
   ignoreCert?: boolean;
@@ -366,10 +372,12 @@ export interface HostData {
   enableRdp?: boolean;
   enableVnc?: boolean;
   enableTelnet?: boolean;
+  enableArd?: boolean;
   sshPort?: number;
   rdpPort?: number;
   vncPort?: number;
   telnetPort?: number;
+  ardPort?: number;
   rdpCredentialId?: number | null;
   rdpUser?: string;
   rdpPassword?: string;
@@ -382,9 +390,13 @@ export interface HostData {
   telnetUser?: string;
   telnetPassword?: string;
   telnetCredentialId?: number | null;
+  ardCredentialId?: number | null;
+  ardPassword?: string;
+  ardUser?: string;
   rdpAuthType?: "direct" | "credential" | "none" | null;
   vncAuthType?: "direct" | "credential" | null;
   telnetAuthType?: "direct" | "credential" | null;
+  ardAuthType?: "direct" | "credential" | null;
 }
 
 export type SSHHost = Host;
@@ -763,7 +775,8 @@ export interface TabContextTab {
     | "tmux_monitor" // --- tmux-monitor ---
     | "rdp"
     | "vnc"
-    | "telnet";
+    | "telnet"
+    | "ard";
   title: string;
   hostConfig?: SSHHost;
   terminalRef?: RefObject<TerminalRefHandle | null>;

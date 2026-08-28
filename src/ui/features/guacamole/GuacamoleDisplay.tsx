@@ -32,7 +32,7 @@ import {
 import { guacStateToStage } from "@/components/connection/connection-status.ts";
 import type { ConnectionStage } from "@/types/connection-log.ts";
 
-export type GuacamoleConnectionType = "rdp" | "vnc" | "telnet";
+export type GuacamoleConnectionType = "rdp" | "vnc" | "telnet" | "ard";
 
 export interface GuacamoleConnectionConfig {
   token?: string;

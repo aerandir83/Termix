@@ -25,6 +25,7 @@ import {
   Hammer,
   Play,
   Plug,
+  ScreenShare,
   ScrollText,
   Sparkles,
   Workflow,
@@ -291,6 +292,8 @@ export function tabIcon(type: TabType) {
       return <MousePointerClick className="size-3.5" />;
     case "telnet":
       return <MessagesSquare className="size-3.5" />;
+    case "ard":
+      return <ScreenShare className="size-3.5" />;
     case "host-metrics":
       return <Server className="size-3.5" />;
     case "proxmox-stats":
@@ -567,6 +570,7 @@ export function renderTabContent(
     case "rdp":
     case "vnc":
     case "telnet":
+    case "ard":
       if (!host)
         return (
           <EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />
@@ -576,7 +580,7 @@ export function renderTabContent(
           ref={tab.terminalRef as React.Ref<GuacamoleAppHandle>}
           hostId={host.id}
           tabId={tab.id}
-          protocol={tab.type as "rdp" | "vnc" | "telnet"}
+          protocol={tab.type as "rdp" | "vnc" | "telnet" | "ard"}
           isVisible={isVisible}
         />,
       );

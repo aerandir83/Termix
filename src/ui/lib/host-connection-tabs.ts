@@ -1,10 +1,14 @@
 import type { Host, TabType } from "@/types/ui-types";
 
-type ConnectionTabType = "terminal" | "rdp" | "vnc" | "telnet";
+type ConnectionTabType = "terminal" | "rdp" | "vnc" | "telnet" | "ard";
 
 function isConnectionTabType(type: TabType): type is ConnectionTabType {
   return (
-    type === "terminal" || type === "rdp" || type === "vnc" || type === "telnet"
+    type === "terminal" ||
+    type === "rdp" ||
+    type === "vnc" ||
+    type === "telnet" ||
+    type === "ard"
   );
 }
 
@@ -18,6 +22,8 @@ function isConnectionEnabled(host: Host, type: ConnectionTabType): boolean {
       return host.enableVnc;
     case "telnet":
       return host.enableTelnet;
+    case "ard":
+      return host.enableArd;
   }
 }
 
@@ -26,6 +32,7 @@ export function getDefaultConnectionTab(host: Host): ConnectionTabType {
   if (host.enableRdp) return "rdp";
   if (host.enableVnc) return "vnc";
   if (host.enableTelnet) return "telnet";
+  if (host.enableArd) return "ard";
   return "terminal";
 }
 

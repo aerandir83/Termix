@@ -233,7 +233,8 @@ export function TransferToHostDialog({
           h.id !== sourceHost.id &&
           h.enableFileManager !== false &&
           h.connectionType !== "rdp" &&
-          h.connectionType !== "vnc",
+          h.connectionType !== "vnc" &&
+          h.connectionType !== "ard",
       );
       setAvailableHosts(candidates);
 

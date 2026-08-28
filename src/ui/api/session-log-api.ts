@@ -11,7 +11,7 @@ export type SessionLogRecord = {
   hostName: string | null;
   hostIp: string | null;
   sizeBytes: number | null;
-  protocol: "ssh" | "rdp" | "vnc" | "telnet";
+  protocol: "ssh" | "rdp" | "vnc" | "telnet" | "ard";
   format: "text" | "asciicast" | "guacamole";
   username: string | null;
 };

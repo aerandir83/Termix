@@ -23,7 +23,8 @@ export async function resolveConnectionOrigin(
   if (
     host.connectionType === "rdp" ||
     host.connectionType === "vnc" ||
-    host.connectionType === "telnet"
+    host.connectionType === "telnet" ||
+    host.connectionType === "ard"
   ) {
     return "remote";
   }

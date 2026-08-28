@@ -16,6 +16,7 @@ import {
   MessagesSquare,
   Network,
   Plus,
+  ScreenShare,
   Server,
   Settings,
   Terminal,
@@ -269,7 +270,9 @@ function QuickActionsCard({
           ? host.vncPort
           : type === "telnet"
             ? host.telnetPort
-            : host.sshPort;
+            : type === "ard"
+              ? host.ardPort
+              : host.sshPort;
     return `${host.ip}:${port}`;
   };
   const renderConnectionIcon = (host: Host) => {
@@ -576,6 +579,7 @@ function RecentActivityCard({
     rdp: <Server className="size-2.5" />,
     vnc: <Server className="size-2.5" />,
     telnet: <MessagesSquare className="size-2.5" />,
+    ard: <ScreenShare className="size-2.5" />,
   };
   const typeToTab: Record<RecentActivityItem["type"], TabType> = {
     terminal: "terminal",
@@ -586,6 +590,7 @@ function RecentActivityCard({
     rdp: "rdp",
     vnc: "vnc",
     telnet: "telnet",
+    ard: "ard",
   };
   const typeLabel: Record<RecentActivityItem["type"], string> = {
     terminal: t("networkGraph.terminal"),
@@ -596,6 +601,7 @@ function RecentActivityCard({
     rdp: "RDP",
     vnc: "VNC",
     telnet: "Telnet",
+    ard: "ARD",
   };
   function formatTime(ts: string) {
     const diffMs = Date.now() - new Date(ts).getTime();

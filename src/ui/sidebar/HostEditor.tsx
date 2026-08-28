@@ -88,6 +88,7 @@ import {
 import { HostEditorGeneralTab } from "./HostEditorGeneralTab";
 import { canEditHost } from "./host-permissions";
 import {
+  HostEditorArdTab,
   HostEditorRdpTab,
   HostEditorTelnetTab,
   HostEditorVncTab,
@@ -305,6 +306,25 @@ export function HostEditor({
   }, [form.vncAuthType, form.vncPassword, host?.id, adminTargetUserId]);
 
   useEffect(() => {
+    if (!host?.id || form.ardAuthType !== "direct" || form.ardPassword) return;
+
+    let cancelled = false;
+    const loadArdPassword = adminTargetUserId
+      ? adminGetHostPassword(adminTargetUserId, Number(host.id), "ardPassword")
+      : getHostPassword(Number(host.id), "ardPassword");
+    loadArdPassword.then((password) => {
+      if (cancelled || !password) return;
+      setForm((prev) =>
+        prev.ardPassword ? prev : { ...prev, ardPassword: password },
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.ardAuthType, form.ardPassword, host?.id, adminTargetUserId]);
+
+  useEffect(() => {
     if (activeTab !== "tunnels") return;
     const unsub = subscribeTunnelStatuses((s) => setTunnelStatuses(s));
     return unsub;
@@ -465,6 +485,7 @@ export function HostEditor({
       enableRdp: "rdp",
       enableVnc: "vnc",
       enableTelnet: "telnet",
+      enableArd: "ard",
     };
     const sshGroupTabs = [
       "ssh",
@@ -2626,6 +2647,16 @@ export function HostEditor({
 
           {activeTab === "telnet" && (
             <HostEditorTelnetTab
+              form={form}
+              setField={setField}
+              setGuacField={setGuacField}
+              host={host}
+              credentials={availableCredentials}
+            />
+          )}
+
+          {activeTab === "ard" && (
+            <HostEditorArdTab
               form={form}
               setField={setField}
               setGuacField={setGuacField}

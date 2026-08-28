@@ -14,6 +14,7 @@ const ALL_TYPES: ActivityType[] = [
   "rdp",
   "vnc",
   "telnet",
+  "ard",
 ];
 
 export function RecentActivityEditForm({

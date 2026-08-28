@@ -25,6 +25,7 @@ import {
   Network,
   Pencil,
   Pin,
+  ScreenShare,
   Server,
   Share2,
   Terminal,
@@ -95,6 +96,7 @@ export function buildStatusTooltip(
   if (host.enableRdp) protocols.push("RDP");
   if (host.enableVnc) protocols.push("VNC");
   if (host.enableTelnet) protocols.push("Telnet");
+  if (host.enableArd) protocols.push("ARD");
   if (protocols.length === 0) return statusLabel;
   return `${protocols.join(", ")}: ${statusLabel}`;
 }
@@ -412,6 +414,7 @@ export function HostItem({
     ...(host.enableRdp ? (["rdp"] as const) : []),
     ...(host.enableVnc ? (["vnc"] as const) : []),
     ...(host.enableTelnet ? (["telnet"] as const) : []),
+    ...(host.enableArd ? (["ard"] as const) : []),
   ];
   const defaultAction: TabType = host.enableSsh
     ? "terminal"
@@ -421,7 +424,9 @@ export function HostItem({
         ? "vnc"
         : host.enableTelnet
           ? "telnet"
-          : "terminal";
+          : host.enableArd
+            ? "ard"
+            : "terminal";
   const openHostTab = (type: TabType) => {
     markTabSurfaceUsed(type);
     recordHostActionPreference(host.id, type);
@@ -446,7 +451,10 @@ export function HostItem({
         </button>
       ))}
       {host.enableSsh &&
-        (host.enableRdp || host.enableVnc || host.enableTelnet) &&
+        (host.enableRdp ||
+          host.enableVnc ||
+          host.enableTelnet ||
+          host.enableArd) &&
         sshActions.length > 0 && (
           <div className="w-px h-3.5 bg-border/60 mx-0.5 shrink-0" />
         )}
@@ -499,6 +507,20 @@ export function HostItem({
           className={trayButtonClass}
         >
           <MessagesSquare className="size-3.5" />
+        </button>
+      )}
+      {host.enableArd && (
+        <button
+          title={t("hosts.connectArd")}
+          onPointerEnter={() => preloadTabSurface("ard")}
+          onFocus={() => preloadTabSurface("ard")}
+          onClick={(e) => {
+            e.stopPropagation();
+            openHostTab("ard");
+          }}
+          className={trayButtonClass}
+        >
+          <ScreenShare className="size-3.5" />
         </button>
       )}
       {host.macAddress && (
@@ -781,6 +803,20 @@ export function HostItem({
                   {t("hosts.copyTelnetUrlAction")}
                 </DropdownMenuItem>
               )}
+              {host.enableArd && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    writeClipboardText(
+                      `${window.location.origin}?view=ard&hostId=${host.id}`,
+                    );
+                    toast.success(t("hosts.ardUrlCopied"));
+                  }}
+                >
+                  <ScreenShare className="size-3.5 mr-2" />
+                  {t("hosts.copyArdUrlAction")}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           {allowDelete && (
@@ -952,6 +988,7 @@ export function HostItem({
             host.enableRdp,
             host.enableVnc,
             host.enableTelnet,
+            host.enableArd,
           ].filter(Boolean).length;
           if (actionCount + otherProtocols <= 1) {
             openHostTab(defaultAction);

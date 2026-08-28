@@ -242,8 +242,8 @@ function GuestGuacamoleView({ share }: { share: ResolvedShareLink }) {
       <GuacamoleDisplay
         connectionConfig={{
           token: share.connectParams.token,
-          protocol: share.protocol as "rdp" | "vnc" | "telnet",
-          type: share.protocol as "rdp" | "vnc" | "telnet",
+          protocol: share.protocol as "rdp" | "vnc" | "telnet" | "ard",
+          type: share.protocol as "rdp" | "vnc" | "telnet" | "ard",
         }}
         isVisible={true}
         onError={(err) => setConnectionError(err)}

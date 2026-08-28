@@ -17,6 +17,7 @@ const ALL_TYPES: QuickConnectType[] = [
   "rdp",
   "vnc",
   "telnet",
+  "ard",
 ];
 
 export function QuickConnectEditForm({
