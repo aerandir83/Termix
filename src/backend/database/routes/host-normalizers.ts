@@ -189,6 +189,7 @@ export type NormalizedImportedHost = Record<string, unknown> & {
   enableRdp: boolean;
   enableVnc: boolean;
   enableTelnet: boolean;
+  enableArd: boolean;
 };
 
 export function normalizeImportedHost(
@@ -204,7 +205,9 @@ export function normalizeImportedHost(
         ? "vnc"
         : asBoolean(hostData.enableTelnet)
           ? "telnet"
-          : "ssh");
+          : asBoolean(hostData.enableArd)
+            ? "ard"
+            : "ssh");
 
   const port =
     asPort(hostData.port) ||
@@ -214,7 +217,9 @@ export function normalizeImportedHost(
         ? asPort(hostData.vncPort) || 5900
         : connectionType === "telnet"
           ? asPort(hostData.telnetPort) || 23
-          : asPort(hostData.sshPort) || 22);
+          : connectionType === "ard"
+            ? asPort(hostData.ardPort) || 5900
+            : asPort(hostData.sshPort) || 22);
 
   return {
     ...hostData,
@@ -255,6 +260,10 @@ export function normalizeImportedHost(
       hostData.enableTelnet === undefined
         ? connectionType === "telnet"
         : asBoolean(hostData.enableTelnet),
+    enableArd:
+      hostData.enableArd === undefined
+        ? connectionType === "ard"
+        : asBoolean(hostData.enableArd),
   };
 }
 
@@ -269,6 +278,7 @@ const SENSITIVE_FIELDS = [
   "rdpPassword",
   "vncPassword",
   "telnetPassword",
+  "ardPassword",
   "autostartPassword",
 ];
 
@@ -290,6 +300,7 @@ export function stripSensitiveFields(
   result.hasRdpPassword = !!host.rdpPassword;
   result.hasVncPassword = !!host.vncPassword;
   result.hasTelnetPassword = !!host.telnetPassword;
+  result.hasArdPassword = !!host.ardPassword;
   for (const field of SENSITIVE_FIELDS) {
     delete result[field];
   }
@@ -344,10 +355,12 @@ const CONNECT_LEVEL_FIELDS = new Set([
   "enableRdp",
   "enableVnc",
   "enableTelnet",
+  "enableArd",
   "sshPort",
   "rdpPort",
   "vncPort",
   "telnetPort",
+  "ardPort",
   "defaultPath",
   "scpLegacy",
   "tunnelConnections",
@@ -450,24 +463,29 @@ export function transformHostResponse(
       const rdp = !!host.enableRdp;
       const vnc = !!host.enableVnc;
       const tel = !!host.enableTelnet;
-      const isMigratedNonSsh = !rdp && !vnc && !tel && ct && ct !== "ssh";
+      const ard = !!host.enableArd;
+      const isMigratedNonSsh =
+        !rdp && !vnc && !tel && !ard && ct && ct !== "ssh";
       return {
         enableSsh: isMigratedNonSsh ? false : !!host.enableSsh,
         enableRdp: isMigratedNonSsh ? ct === "rdp" : rdp,
         enableVnc: isMigratedNonSsh ? ct === "vnc" : vnc,
         enableTelnet: isMigratedNonSsh ? ct === "telnet" : tel,
+        enableArd: isMigratedNonSsh ? ct === "ard" : ard,
       };
     })(),
     sshPort: host.sshPort ?? host.port ?? 22,
     rdpPort: host.rdpPort ?? 3389,
     vncPort: host.vncPort ?? 5900,
     telnetPort: host.telnetPort ?? 23,
+    ardPort: host.ardPort ?? 5900,
     rdpUser: host.rdpUser || undefined,
     rdpDomain: host.rdpDomain || undefined,
     rdpSecurity: host.rdpSecurity || undefined,
     rdpIgnoreCert: !!host.rdpIgnoreCert,
     vncUser: host.vncUser || undefined,
     telnetUser: host.telnetUser || undefined,
+    ardUser: host.ardUser || undefined,
     tunnelConnections: host.tunnelConnections
       ? JSON.parse(host.tunnelConnections as string)
       : [],

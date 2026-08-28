@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { guacLogger } from "../../utils/logger.js";
 
 export interface GuacamoleConnectionSettings {
-  type?: "rdp" | "vnc" | "telnet";
+  type?: "rdp" | "vnc" | "telnet" | "ard";
   join?: string;
   readOnly?: boolean;
   guacdHost?: string;
@@ -34,7 +34,7 @@ export interface TermixGuacMeta {
   termixConnectId: string;
   hostId: number;
   ownerUserId: string;
-  protocol: "rdp" | "vnc" | "telnet";
+  protocol: "rdp" | "vnc" | "telnet" | "ard";
 }
 
 export interface GuacamoleToken {
@@ -46,7 +46,7 @@ export interface GuacamoleToken {
 export interface GuacamoleRecordingMetadata {
   hostId: number;
   userId: string;
-  protocol: "rdp" | "vnc" | "telnet";
+  protocol: "rdp" | "vnc" | "telnet" | "ard";
   path: string;
   /** Directory guacd was told to write into; differs from the backend's view
    * when guacd runs in its own container. */
@@ -175,6 +175,40 @@ export class GuacamoleTokenService {
   }
 
   createVncToken(
+    hostname: string,
+    username?: string,
+    password?: string,
+    options: Partial<GuacamoleConnectionSettings["settings"]> & {
+      guacdHost?: string;
+      guacdPort?: number;
+    } = {},
+    recording?: GuacamoleRecordingMetadata,
+    termixMeta?: TermixGuacMeta,
+  ): string {
+    const { guacdHost, guacdPort, ...settingsOptions } = options;
+    const token: GuacamoleToken = {
+      connection: {
+        type: "vnc",
+        ...(guacdHost ? { guacdHost } : {}),
+        ...(guacdPort ? { guacdPort } : {}),
+        settings: {
+          hostname,
+          ...(username ? { username } : {}),
+          password,
+          port: 5900,
+          ...settingsOptions,
+        },
+      },
+      recording,
+      termixMeta,
+    };
+    return this.encryptToken(token);
+  }
+
+  // ARD's screen-sharing transport is VNC/RFB with Apple's auth extension, so
+  // guacd always receives type: "vnc" here — "ard" only exists as Termix's own
+  // connectionType/session concept (termixMeta.protocol).
+  createArdToken(
     hostname: string,
     username?: string,
     password?: string,

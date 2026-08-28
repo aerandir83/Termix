@@ -6,7 +6,7 @@ import { rowsAffected } from "./mutation-result.js";
 export type SharedHostSecretRecord = typeof sharedHostSecrets.$inferSelect;
 export type NewSharedHostSecretRecord = typeof sharedHostSecrets.$inferInsert;
 
-export type ShareProtocol = "ssh" | "rdp" | "vnc" | "telnet";
+export type ShareProtocol = "ssh" | "rdp" | "vnc" | "telnet" | "ard";
 
 export class SharedHostSecretsRepository {
   constructor(

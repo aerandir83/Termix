@@ -177,6 +177,8 @@ const clientOptions = {
       dpi: 96,
       audio: ["audio/L16"],
     },
+    // Also applies to ARD connections: ARD's wire protocol is VNC/RFB, so
+    // guacd always sees type: "vnc" for those sessions too.
     vnc: {
       "swap-red-blue": false,
       cursor: "remote",

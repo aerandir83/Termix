@@ -48,13 +48,16 @@ function enabledProtocols(
   const rdp = !!host.enableRdp;
   const vnc = !!host.enableVnc;
   const telnet = !!host.enableTelnet;
-  const isMigratedNonSsh = !rdp && !vnc && !telnet && !!ct && ct !== "ssh";
+  const ard = !!host.enableArd;
+  const isMigratedNonSsh =
+    !rdp && !vnc && !telnet && !ard && !!ct && ct !== "ssh";
 
   return {
     ssh: isMigratedNonSsh ? false : host.enableSsh !== false,
     rdp: isMigratedNonSsh ? ct === "rdp" : rdp,
     vnc: isMigratedNonSsh ? ct === "vnc" : vnc,
     telnet: isMigratedNonSsh ? ct === "telnet" : telnet,
+    ard: isMigratedNonSsh ? ct === "ard" : ard,
   };
 }
 
@@ -508,6 +511,40 @@ class SharedHostSecretsManager {
             username: host.telnetUser || undefined,
             authType: "direct",
             password: host.telnetPassword || undefined,
+          },
+        });
+      }
+    }
+
+    if (enabled.ard) {
+      const ardAuthType =
+        host.ardAuthType || (host.ardCredentialId ? "credential" : "direct");
+      if (ardAuthType === "credential" && host.ardCredentialId) {
+        const credential = await repository.findCredentialByIdForUser(
+          host.ardCredentialId,
+          ownerId,
+        );
+        if (credential) {
+          snapshots.push({
+            protocol: "ard",
+            sourceType: "credential",
+            originalCredentialId: host.ardCredentialId,
+            data: {
+              username: credential.username || undefined,
+              authType: "credential",
+              password: credential.password || undefined,
+            },
+          });
+        }
+      } else if (host.ardUser || host.ardPassword) {
+        snapshots.push({
+          protocol: "ard",
+          sourceType: "inline",
+          originalCredentialId: null,
+          data: {
+            username: host.ardUser || undefined,
+            authType: "direct",
+            password: host.ardPassword || undefined,
           },
         });
       }

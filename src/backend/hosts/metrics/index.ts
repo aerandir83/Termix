@@ -134,10 +134,11 @@ interface SSHHostWithCredentials {
   socks5Username?: string;
   socks5Password?: string;
   socks5ProxyChain?: ProxyNode[];
-  connectionType?: "ssh" | "rdp" | "vnc" | "telnet";
+  connectionType?: "ssh" | "rdp" | "vnc" | "telnet" | "ard";
   rdpPort?: number;
   vncPort?: number;
   telnetPort?: number;
+  ardPort?: number;
   vaultProfile?: { id?: number | null } | null;
 }
 
@@ -557,6 +558,7 @@ class PollingManager {
       if (ct === "rdp") pingPort = refreshedHost.rdpPort ?? 3389;
       else if (ct === "vnc") pingPort = refreshedHost.vncPort ?? 5900;
       else if (ct === "telnet") pingPort = refreshedHost.telnetPort ?? 23;
+      else if (ct === "ard") pingPort = refreshedHost.ardPort ?? 5900;
       else pingPort = refreshedHost.port;
 
       let isOnline: boolean;
