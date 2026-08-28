@@ -23,6 +23,8 @@ import {
 } from "../../utils/audit-logger.js";
 import { resolveJumpTunnelEndpoint } from "./jump-tunnel-endpoint.js";
 import { buildRdpSettings, resolveRdpDomain } from "./rdp-settings.js";
+import { startArdSecurityRelay } from "./ard-security-relay.js";
+import { registerArdRelayCleanup } from "./guacamole-server.js";
 
 const router = express.Router();
 const tokenService = GuacamoleTokenService.getInstance();
@@ -482,6 +484,7 @@ router.post(
       let port = host.port as number;
       let username: string;
       let password: string;
+      let ardRelayClose: (() => void) | undefined;
 
       const rdpAuthTypeForConnect = isSharedConnection
         ? null
@@ -623,6 +626,45 @@ router.post(
         }
       }
 
+      if (connectionType === "ard") {
+        try {
+          let guacdUrl: string | undefined;
+          try {
+            guacdUrl =
+              (await createCurrentSettingsRepository().get("guac_url")) ??
+              undefined;
+          } catch {
+            // Environment/default guacd configuration remains available.
+          }
+          const guacdHost =
+            perConnectionGuacdHost || resolveGuacdOptions(guacdUrl).host;
+
+          const relay = await startArdSecurityRelay(hostname, port, guacdHost);
+          hostname = relay.host;
+          port = relay.port;
+          ardRelayClose = relay.close;
+
+          // Safety net in case guacd's "close" event never fires (e.g. the
+          // handshake never completes) so the relay isn't leaked forever.
+          setTimeout(() => relay.close(), 60 * 60 * 1000);
+
+          guacLogger.info("ARD security relay established", {
+            operation: "guac_ard_relay",
+            hostId,
+            relayPort: relay.port,
+          });
+        } catch (relayError) {
+          guacLogger.error(
+            "Failed to establish ARD security relay",
+            relayError,
+            { operation: "guac_ard_relay_error", hostId },
+          );
+          return res.status(500).json({
+            error: "Failed to establish ARD security relay",
+          });
+        }
+      }
+
       const guacdOverrides = {
         ...(perConnectionGuacdHost
           ? { guacdHost: perConnectionGuacdHost }
@@ -665,6 +707,9 @@ router.post(
         ownerUserId: userId,
         protocol: connectionType as "rdp" | "vnc" | "telnet" | "ard",
       };
+      if (ardRelayClose) {
+        registerArdRelayCleanup(termixConnectId, ardRelayClose);
+      }
 
       switch (connectionType) {
         case "rdp":
