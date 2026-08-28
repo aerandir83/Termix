@@ -244,11 +244,13 @@ export const hosts = sqliteTable(
     enableRdp: integer("enable_rdp", { mode: "boolean" }).notNull().default(false),
     enableVnc: integer("enable_vnc", { mode: "boolean" }).notNull().default(false),
     enableTelnet: integer("enable_telnet", { mode: "boolean" }).notNull().default(false),
+    enableArd: integer("enable_ard", { mode: "boolean" }).notNull().default(false),
 
     sshPort: integer("ssh_port").default(22),
     rdpPort: integer("rdp_port").default(3389),
     vncPort: integer("vnc_port").default(5900),
     telnetPort: integer("telnet_port").default(23),
+    ardPort: integer("ard_port").default(5900),
 
     rdpCredentialId: integer("rdp_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
     rdpUser: text("rdp_user"),
@@ -265,9 +267,14 @@ export const hosts = sqliteTable(
     telnetPassword: text("telnet_password"),
     telnetCredentialId: integer("telnet_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
 
+    ardCredentialId: integer("ard_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
+    ardPassword: text("ard_password"),
+    ardUser: text("ard_user"),
+
     rdpAuthType: text("rdp_auth_type"),
     vncAuthType: text("vnc_auth_type"),
     telnetAuthType: text("telnet_auth_type"),
+    ardAuthType: text("ard_auth_type"),
 
     domain: text("domain"),
     security: text("security"),

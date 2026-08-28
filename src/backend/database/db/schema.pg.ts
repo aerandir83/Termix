@@ -252,11 +252,13 @@ export const hosts = pgTable(
     enableRdp: boolean("enable_rdp").notNull().default(false),
     enableVnc: boolean("enable_vnc").notNull().default(false),
     enableTelnet: boolean("enable_telnet").notNull().default(false),
+    enableArd: boolean("enable_ard").notNull().default(false),
 
     sshPort: integer("ssh_port").default(22),
     rdpPort: integer("rdp_port").default(3389),
     vncPort: integer("vnc_port").default(5900),
     telnetPort: integer("telnet_port").default(23),
+    ardPort: integer("ard_port").default(5900),
 
     rdpCredentialId: integer("rdp_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
     rdpUser: text("rdp_user"),
@@ -273,9 +275,14 @@ export const hosts = pgTable(
     telnetPassword: text("telnet_password"),
     telnetCredentialId: integer("telnet_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
 
+    ardCredentialId: integer("ard_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
+    ardPassword: text("ard_password"),
+    ardUser: text("ard_user"),
+
     rdpAuthType: text("rdp_auth_type"),
     vncAuthType: text("vnc_auth_type"),
     telnetAuthType: text("telnet_auth_type"),
+    ardAuthType: text("ard_auth_type"),
 
     domain: text("domain"),
     security: text("security"),

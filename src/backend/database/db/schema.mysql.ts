@@ -251,11 +251,13 @@ export const hosts = mysqlTable(
     enableRdp: boolean("enable_rdp").notNull().default(false),
     enableVnc: boolean("enable_vnc").notNull().default(false),
     enableTelnet: boolean("enable_telnet").notNull().default(false),
+    enableArd: boolean("enable_ard").notNull().default(false),
 
     sshPort: int("ssh_port").default(22),
     rdpPort: int("rdp_port").default(3389),
     vncPort: int("vnc_port").default(5900),
     telnetPort: int("telnet_port").default(23),
+    ardPort: int("ard_port").default(5900),
 
     rdpCredentialId: int("rdp_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
     rdpUser: text("rdp_user"),
@@ -272,9 +274,14 @@ export const hosts = mysqlTable(
     telnetPassword: text("telnet_password"),
     telnetCredentialId: int("telnet_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
 
+    ardCredentialId: int("ard_credential_id").references(() => sshCredentials.id, { onDelete: "set null" }),
+    ardPassword: text("ard_password"),
+    ardUser: text("ard_user"),
+
     rdpAuthType: text("rdp_auth_type"),
     vncAuthType: text("vnc_auth_type"),
     telnetAuthType: text("telnet_auth_type"),
+    ardAuthType: text("ard_auth_type"),
 
     domain: text("domain"),
     security: text("security"),
