@@ -324,11 +324,20 @@ export async function startArdSecurityRelay(
   let closed = false;
 
   const server = net.createServer((guacdSock) => {
+    // Both hops are on the hot path for every RFB message this relay
+    // forwards (mouse/keyboard events, incremental framebuffer updates).
+    // Node's default Nagle's-algorithm buffering delays small writes
+    // waiting to coalesce them, which combined with delayed ACKs on the
+    // other end adds tens-to-hundreds of ms per round trip -- TCP-hop
+    // overhead this relay introduces on top of guacd's own (already
+    // TCP_NODELAY'd) VNC socket, so both legs need the same treatment.
+    guacdSock.setNoDelay(true);
     activeSockets.add(guacdSock);
     guacdSock.on("close", () => activeSockets.delete(guacdSock));
     guacdSock.on("error", () => guacdSock.destroy());
 
     const hostSock = net.connect(targetPort, targetHost);
+    hostSock.setNoDelay(true);
     activeSockets.add(hostSock);
     hostSock.on("close", () => activeSockets.delete(hostSock));
     hostSock.on("error", () => {
