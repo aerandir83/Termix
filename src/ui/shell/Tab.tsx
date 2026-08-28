@@ -16,6 +16,7 @@ import {
   Monitor as MonitorIcon,
   Eye as EyeIcon,
   MessagesSquare as MessageSquareIcon,
+  ScreenShare as ScreenShareIcon,
   Network,
   ArrowDownUp as TunnelIcon,
   Container as DockerIcon,
@@ -187,6 +188,7 @@ export function Tab({
     tabType === "rdp" ||
     tabType === "vnc" ||
     tabType === "telnet" ||
+    tabType === "ard" ||
     tabType === "tunnel" ||
     tabType === "docker" ||
     tabType === "tmux_monitor" || // --- tmux-monitor ---
@@ -214,7 +216,8 @@ export function Tab({
                   ? t("nav.userProfile")
                   : tabType === "rdp" ||
                       tabType === "vnc" ||
-                      tabType === "telnet"
+                      tabType === "telnet" ||
+                      tabType === "ard"
                     ? tabType.toUpperCase()
                     : t("nav.terminal"));
 
@@ -249,6 +252,8 @@ export function Tab({
             <EyeIcon className="h-4 w-4 flex-shrink-0" />
           ) : tabType === "telnet" ? (
             <MessageSquareIcon className="h-4 w-4 flex-shrink-0" />
+          ) : tabType === "ard" ? (
+            <ScreenShareIcon className="h-4 w-4 flex-shrink-0" />
           ) : (
             <TerminalIcon className="h-4 w-4 flex-shrink-0" />
           )}

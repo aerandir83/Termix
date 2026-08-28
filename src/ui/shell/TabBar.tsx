@@ -33,6 +33,7 @@ const CONNECTION_TAB_TYPES: TabType[] = [
   "rdp",
   "vnc",
   "telnet",
+  "ard",
 ];
 
 export function TabBar({

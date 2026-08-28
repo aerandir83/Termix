@@ -8,6 +8,7 @@ import {
   Monitor,
   Tv,
   Phone,
+  ScreenShare,
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -32,6 +33,7 @@ const TYPE_ICONS: Record<QuickConnectType, React.ReactNode> = {
   rdp: <Monitor size={12} />,
   vnc: <Tv size={12} />,
   telnet: <Phone size={12} />,
+  ard: <ScreenShare size={12} />,
 };
 
 type EnableCheck = (host: SSHHostWithStatus) => boolean;
@@ -45,6 +47,7 @@ const TYPE_ENABLED: Record<QuickConnectType, EnableCheck> = {
   rdp: (h) => !!h.enableRdp,
   vnc: (h) => !!h.enableVnc,
   telnet: (h) => !!h.enableTelnet,
+  ard: (h) => !!h.enableArd,
 };
 
 function statusDotClass(host: SSHHostWithStatus): string {

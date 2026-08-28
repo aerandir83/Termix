@@ -50,7 +50,7 @@ import { resolveConnectionDefaults } from "@/lib/connection-defaults";
 interface GuacamoleAppProps {
   hostId?: string;
   tabId?: string;
-  protocol?: "rdp" | "vnc" | "telnet";
+  protocol?: "rdp" | "vnc" | "telnet" | "ard";
   isVisible?: boolean;
 }
 
@@ -138,7 +138,7 @@ interface GuacamoleAppInnerProps {
   >;
   hostName: string;
   tabId?: string;
-  protocol?: "rdp" | "vnc" | "telnet";
+  protocol?: "rdp" | "vnc" | "telnet" | "ard";
   isVisible: boolean;
 }
 
@@ -193,7 +193,7 @@ const GuacamoleAppInner = React.forwardRef<
 
   const resolvedProtocolForConnect = (protocol ??
     hostConfig.connectionType ??
-    "rdp") as "rdp" | "vnc" | "telnet";
+    "rdp") as "rdp" | "vnc" | "telnet" | "ard";
   const needsCredentialPrompt =
     resolvedProtocolForConnect === "rdp" && hostConfig.rdpAuthType === "none";
 

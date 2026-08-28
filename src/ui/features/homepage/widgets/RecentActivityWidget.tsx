@@ -46,6 +46,7 @@ function ActivityIcon({ type }: { type: string }) {
     case "rdp":
     case "vnc":
     case "telnet":
+    case "ard":
       return <Monitor size={10} className={cls} />;
     default:
       return <Activity size={10} className={cls} />;

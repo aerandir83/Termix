@@ -1,4 +1,10 @@
-export const AUTH_OVERRIDE_PROTOCOLS = ["ssh", "rdp", "vnc", "telnet"] as const;
+export const AUTH_OVERRIDE_PROTOCOLS = [
+  "ssh",
+  "rdp",
+  "vnc",
+  "telnet",
+  "ard",
+] as const;
 
 export type AuthOverrideProtocol = (typeof AUTH_OVERRIDE_PROTOCOLS)[number];
 
@@ -29,16 +35,23 @@ export const AUTH_PROTOCOL_METADATA = {
     enableField: "enableTelnet",
     credentialField: "telnetCredentialId",
   },
+  ard: {
+    label: "ARD",
+    enableField: "enableArd",
+    credentialField: "ardCredentialId",
+  },
 } as const satisfies Record<
   AuthOverrideProtocol,
   {
     label: string;
-    enableField: "enableSsh" | "enableRdp" | "enableVnc" | "enableTelnet";
+    enableField:
+      "enableSsh" | "enableRdp" | "enableVnc" | "enableTelnet" | "enableArd";
     credentialField:
       | "credentialId"
       | "rdpCredentialId"
       | "vncCredentialId"
-      | "telnetCredentialId";
+      | "telnetCredentialId"
+      | "ardCredentialId";
   }
 >;
 

@@ -4,7 +4,7 @@ import { isElectron } from "@/lib/electron";
 import { authApi, handleApiError } from "@/main-axios";
 
 export interface ResolvedShareLink {
-  protocol: "ssh" | "rdp" | "vnc" | "telnet";
+  protocol: "ssh" | "rdp" | "vnc" | "telnet" | "ard";
   permissionLevel: "read-only" | "read-write";
   wsPath: string;
   connectParams?: { token: string };
@@ -78,7 +78,7 @@ export async function resolveShareLink(
 // SESSION SHARING (authenticated owner-side API)
 // ============================================================================
 
-export type SessionShareProtocol = "ssh" | "rdp" | "vnc" | "telnet";
+export type SessionShareProtocol = "ssh" | "rdp" | "vnc" | "telnet" | "ard";
 export type SessionShareType = "link" | "user";
 export type SessionSharePermissionLevel = "read-only" | "read-write";
 

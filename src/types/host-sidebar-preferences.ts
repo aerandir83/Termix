@@ -35,7 +35,7 @@ export type HostTrayTrigger = "always" | "hover" | "click" | "actionsOnly";
 export interface HostSidebarFilterState {
   status: ("online" | "offline" | "pinned")[];
   authType: ("password" | "key" | "credential" | "none" | "opkssh")[];
-  protocol: ("ssh" | "rdp" | "vnc" | "telnet")[];
+  protocol: ("ssh" | "rdp" | "vnc" | "telnet" | "ard")[];
   features: ("terminal" | "fileManager" | "tunnel" | "docker")[];
   tags: string[];
 }
@@ -100,6 +100,7 @@ const FILTER_PROTOCOL: HostSidebarFilterState["protocol"] = [
   "rdp",
   "vnc",
   "telnet",
+  "ard",
 ];
 const FILTER_FEATURES: HostSidebarFilterState["features"] = [
   "terminal",

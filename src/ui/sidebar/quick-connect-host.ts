@@ -40,10 +40,12 @@ export function createQuickConnectHost(input: QuickConnectInput): Host {
     enableRdp: false,
     enableVnc: false,
     enableTelnet: false,
+    enableArd: false,
     sshPort: input.port,
     rdpPort: 3389,
     vncPort: 5900,
     telnetPort: 23,
+    ardPort: 5900,
   };
 }
 

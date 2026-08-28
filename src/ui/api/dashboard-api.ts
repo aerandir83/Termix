@@ -21,7 +21,8 @@ export interface RecentActivityItem {
     | "docker"
     | "telnet"
     | "vnc"
-    | "rdp";
+    | "rdp"
+    | "ard";
   hostId: number;
   hostName: string;
   timestamp: string;
@@ -58,7 +59,8 @@ export async function logActivity(
     | "docker"
     | "rdp"
     | "vnc"
-    | "telnet",
+    | "telnet"
+    | "ard",
   hostId: number,
   hostName: string,
 ): Promise<{ message: string; id: number | string }> {

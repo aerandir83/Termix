@@ -12,6 +12,7 @@ const sshOnly: HostProtocols = {
   enableRdp: false,
   enableVnc: false,
   enableTelnet: false,
+  enableArd: false,
 };
 
 const rdpOnly: HostProtocols = {
@@ -19,6 +20,7 @@ const rdpOnly: HostProtocols = {
   enableRdp: true,
   enableVnc: false,
   enableTelnet: false,
+  enableArd: false,
 };
 
 const vncOnly: HostProtocols = {
@@ -26,6 +28,7 @@ const vncOnly: HostProtocols = {
   enableRdp: false,
   enableVnc: true,
   enableTelnet: false,
+  enableArd: false,
 };
 
 const telnetOnly: HostProtocols = {
@@ -33,6 +36,7 @@ const telnetOnly: HostProtocols = {
   enableRdp: false,
   enableVnc: false,
   enableTelnet: true,
+  enableArd: false,
 };
 
 describe("omitOwnerSshAuthFromSharedEdit", () => {

@@ -15,6 +15,7 @@ export const WORKSPACE_CAPTURABLE_TYPES: TabType[] = [
   "rdp",
   "vnc",
   "telnet",
+  "ard",
   "host-metrics",
   "proxmox-stats",
   "files",

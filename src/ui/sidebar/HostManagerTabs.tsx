@@ -8,6 +8,7 @@ import {
   Monitor,
   MousePointerClick,
   Network,
+  ScreenShare,
   Server,
   Settings,
   SquareTerminal,
@@ -25,7 +26,8 @@ export type HostTabId =
   | "host-metrics"
   | "rdp"
   | "vnc"
-  | "telnet";
+  | "telnet"
+  | "ard";
 export type CredentialTabId = "general" | "auth";
 
 type HostTab = {
@@ -75,6 +77,11 @@ export function makeHostTabs(t: (key: string) => string): HostTab[] {
       id: "telnet",
       label: t("hosts.tabTelnet"),
       icon: <Terminal className="size-3" />,
+    },
+    {
+      id: "ard",
+      label: t("hosts.tabArd"),
+      icon: <ScreenShare className="size-3" />,
     },
   ];
 }

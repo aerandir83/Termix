@@ -1713,7 +1713,7 @@ router.get(
  *         name: field
  *         schema:
  *           type: string
- *           enum: [password, sudoPassword, rdpPassword, vncPassword, telnetPassword, key, keyPassword]
+ *           enum: [password, sudoPassword, rdpPassword, vncPassword, telnetPassword, ardPassword, key, keyPassword]
  *     responses:
  *       200:
  *         description: The requested password value.
@@ -1736,6 +1736,7 @@ router.get(
         "rdpPassword",
         "vncPassword",
         "telnetPassword",
+        "ardPassword",
         "key",
         "keyPassword",
       ].includes(field)

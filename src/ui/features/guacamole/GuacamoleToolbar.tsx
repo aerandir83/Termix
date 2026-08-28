@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 
 interface GuacamoleToolbarProps {
   displayRef: React.RefObject<GuacamoleDisplayHandle>;
-  protocol: "rdp" | "vnc" | "telnet";
+  protocol: "rdp" | "vnc" | "telnet" | "ard";
   touchMode?: GuacamoleTouchMode | null;
   hasFilesystem?: boolean;
   fileBrowserOpen?: boolean;
@@ -244,7 +244,8 @@ export const GuacamoleToolbar: React.FC<GuacamoleToolbarProps> = ({
     [displayRef],
   );
 
-  const isRdpVnc = protocol === "rdp" || protocol === "vnc";
+  const isRdpVnc =
+    protocol === "rdp" || protocol === "vnc" || protocol === "ard";
 
   const containerStyle: React.CSSProperties = {
     position: "absolute",

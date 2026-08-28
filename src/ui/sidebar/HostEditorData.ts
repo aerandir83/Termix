@@ -14,6 +14,7 @@ export type HostProtocols = {
   enableRdp: boolean;
   enableVnc: boolean;
   enableTelnet: boolean;
+  enableArd: boolean;
 };
 
 export type HostAuthType = Host["authType"];
@@ -129,6 +130,7 @@ export function createHostEditorForm(
     rdpPort: host?.rdpPort ?? 3389,
     vncPort: host?.vncPort ?? 5900,
     telnetPort: host?.telnetPort ?? 23,
+    ardPort: host?.ardPort ?? 5900,
     authType: host?.authType ?? "password",
     useWarpgate: host?.useWarpgate ?? false,
     shareSshAuth: host?.shareSshAuth ?? false,
@@ -289,6 +291,11 @@ export function createHostEditorForm(
       : (host?.telnetPassword ?? ""),
     telnetCredentialId:
       host?.telnetCredentialId != null ? String(host.telnetCredentialId) : "",
+    ardCredentialId: host?.ardCredentialId ?? "",
+    ardPassword: host?.hasArdPassword
+      ? "existing_ard_password"
+      : (host?.ardPassword ?? ""),
+    ardUser: host?.ardUser ?? "",
     rdpAuthType: (host?.rdpAuthType ??
       (host?.rdpCredentialId ? "credential" : "direct")) as
       "direct" | "credential" | "none",
@@ -297,6 +304,9 @@ export function createHostEditorForm(
       "direct" | "credential",
     telnetAuthType: (host?.telnetAuthType ??
       (host?.telnetCredentialId ? "credential" : "direct")) as
+      "direct" | "credential",
+    ardAuthType: (host?.ardAuthType ??
+      (host?.ardCredentialId ? "credential" : "direct")) as
       "direct" | "credential",
     guacamoleConfig,
     statsConfig: host?.statsConfig ?? {
@@ -426,7 +436,9 @@ export function buildHostEditorPayload(
         ? "rdp"
         : protocols.enableVnc
           ? "vnc"
-          : "telnet",
+          : protocols.enableArd
+            ? "ard"
+            : "telnet",
     name: form.name,
     ip: form.ip,
     port: protocols.enableSsh
@@ -435,7 +447,9 @@ export function buildHostEditorPayload(
         ? Number(form.rdpPort)
         : protocols.enableVnc
           ? Number(form.vncPort)
-          : Number(form.telnetPort),
+          : protocols.enableArd
+            ? Number(form.ardPort)
+            : Number(form.telnetPort),
     username: form.username,
     folder: form.folder,
     parentHostId: form.parentHostId ? Number(form.parentHostId) : null,
@@ -506,10 +520,12 @@ export function buildHostEditorPayload(
     enableRdp: protocols.enableRdp,
     enableVnc: protocols.enableVnc,
     enableTelnet: protocols.enableTelnet,
+    enableArd: protocols.enableArd,
     sshPort: Number(form.sshPort),
     rdpPort: Number(form.rdpPort),
     vncPort: Number(form.vncPort),
     telnetPort: Number(form.telnetPort),
+    ardPort: Number(form.ardPort),
     forceKeyboardInteractive: form.forceKeyboardInteractive,
     rdpAuthType: protocols.enableRdp ? form.rdpAuthType : null,
     rdpCredentialId:
@@ -565,6 +581,23 @@ export function buildHostEditorPayload(
       form.telnetPassword !== "existing_telnet_password"
         ? form.telnetPassword || null
         : null,
+    ardAuthType: protocols.enableArd ? form.ardAuthType : null,
+    ardCredentialId:
+      protocols.enableArd &&
+      form.ardAuthType === "credential" &&
+      form.ardCredentialId
+        ? Number(form.ardCredentialId)
+        : null,
+    ardPassword:
+      protocols.enableArd &&
+      form.ardAuthType === "direct" &&
+      form.ardPassword !== "existing_ard_password"
+        ? form.ardPassword || null
+        : null,
+    ardUser:
+      protocols.enableArd && form.ardAuthType === "direct"
+        ? form.ardUser || null
+        : null,
     // The editor keeps ids as strings; the API and every backend lookup take
     // a number, and a string id does not compare equal on Postgres/MySQL.
     jumpHosts: form.jumpHosts.map((j) => ({ hostId: Number(j.hostId) })),
@@ -576,7 +609,10 @@ export function buildHostEditorPayload(
     })),
     statsConfig: form.statsConfig,
     guacamoleConfig:
-      (protocols.enableRdp || protocols.enableVnc || protocols.enableTelnet) &&
+      (protocols.enableRdp ||
+        protocols.enableVnc ||
+        protocols.enableTelnet ||
+        protocols.enableArd) &&
       Object.keys(guacamoleConfig).length > 0
         ? guacamoleConfig
         : null,

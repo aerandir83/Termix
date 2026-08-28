@@ -151,11 +151,13 @@ export type Host = {
   enableRdp: boolean;
   enableVnc: boolean;
   enableTelnet: boolean;
+  enableArd: boolean;
 
   sshPort: number;
   rdpPort: number;
   vncPort: number;
   telnetPort: number;
+  ardPort: number;
 
   rdpAuthType?: "direct" | "credential" | "none";
   rdpCredentialId?: string;
@@ -177,6 +179,12 @@ export type Host = {
   telnetUser?: string;
   telnetPassword?: string;
   hasTelnetPassword?: boolean;
+
+  ardAuthType?: "direct" | "credential";
+  ardCredentialId?: string;
+  ardPassword?: string;
+  hasArdPassword?: boolean;
+  ardUser?: string;
 
   guacamoleConfig?: GuacamoleConfig;
   forceKeyboardInteractive?: boolean;
@@ -244,6 +252,7 @@ export type TabType =
   | "rdp"
   | "vnc"
   | "telnet"
+  | "ard"
   | "host-metrics"
   | "proxmox-stats"
   | "files"

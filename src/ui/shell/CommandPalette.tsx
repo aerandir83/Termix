@@ -35,6 +35,7 @@ import {
   Pencil,
   Play,
   Clipboard,
+  ScreenShare,
 } from "lucide-react";
 import {
   getRecentActivity,
@@ -67,6 +68,7 @@ const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
   telnet: <MessagesSquare className="size-3.5" />,
   vnc: <MousePointerClick className="size-3.5" />,
   rdp: <Monitor className="size-3.5" />,
+  ard: <ScreenShare className="size-3.5" />,
 };
 
 const ACTIVITY_TAB_TYPE: Record<string, TabType> = {
@@ -78,6 +80,7 @@ const ACTIVITY_TAB_TYPE: Record<string, TabType> = {
   telnet: "telnet",
   vnc: "vnc",
   rdp: "rdp",
+  ard: "ard",
 };
 
 function getSshActions(host: Host): {
@@ -522,7 +525,9 @@ export function CommandPalette({
                                     ? "vnc"
                                     : host.enableTelnet
                                       ? "telnet"
-                                      : "terminal";
+                                      : host.enableArd
+                                        ? "ard"
+                                        : "terminal";
                               onOpenTab(type, host.name);
                             })
                           }
@@ -578,7 +583,8 @@ export function CommandPalette({
                             {host.enableSsh &&
                               (host.enableRdp ||
                                 host.enableVnc ||
-                                host.enableTelnet) && (
+                                host.enableTelnet ||
+                                host.enableArd) && (
                                 <div className="w-px h-3.5 bg-border/60 mx-0.5 shrink-0" />
                               )}
                             {host.enableRdp && (
@@ -624,6 +630,21 @@ export function CommandPalette({
                               >
                                 <Terminal className="size-3" />
                                 Telnet
+                              </button>
+                            )}
+                            {host.enableArd && (
+                              <button
+                                title="ARD"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAction(() =>
+                                    onOpenTab("ard", host.name),
+                                  );
+                                }}
+                                className="flex items-center gap-1 px-2 h-6 rounded text-xs font-medium text-muted-foreground/70 hover:text-foreground hover:bg-muted-foreground/10 transition-colors border border-border/40"
+                              >
+                                <ScreenShare className="size-3" />
+                                ARD
                               </button>
                             )}
                             {canEditHost(host) && (

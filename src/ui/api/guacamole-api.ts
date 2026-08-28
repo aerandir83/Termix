@@ -19,7 +19,7 @@ function guacamoleApi(): AxiosInstance {
 }
 
 export interface GuacamoleTokenRequest {
-  protocol: "rdp" | "vnc" | "telnet";
+  protocol: "rdp" | "vnc" | "telnet" | "ard";
   hostname: string;
   port?: number;
   username?: string;
@@ -180,7 +180,7 @@ export async function getGuacamoleToken(
 
 export async function getGuacamoleTokenFromHost(
   hostId: number,
-  protocol?: "rdp" | "vnc" | "telnet",
+  protocol?: "rdp" | "vnc" | "telnet" | "ard",
   promptedCredentials?: {
     username?: string;
     password?: string;

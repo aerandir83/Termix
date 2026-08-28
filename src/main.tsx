@@ -115,10 +115,11 @@ function FullscreenApp() {
     case "rdp":
     case "vnc":
     case "telnet":
+    case "ard":
       return (
         <GuacamoleApp
           hostId={hostId || undefined}
-          protocol={view as "rdp" | "vnc" | "telnet"}
+          protocol={view as "rdp" | "vnc" | "telnet" | "ard"}
         />
       );
     case "tmux-monitor": // --- tmux-monitor ---

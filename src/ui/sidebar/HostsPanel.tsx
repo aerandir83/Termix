@@ -90,6 +90,7 @@ function hostGroupNames(host: Host, key: GroupKey): string[] {
       if (host.enableRdp) protos.push("rdp");
       if (host.enableVnc) protos.push("vnc");
       if (host.enableTelnet) protos.push("telnet");
+      if (host.enableArd) protos.push("ard");
       return protos.length > 0 ? protos : ["__none__"];
     }
     case "auth":
@@ -146,7 +147,8 @@ function hostPassesFilters(host: Host, filters: FilterState): boolean {
       (filters.protocol.includes("ssh") && host.enableSsh) ||
       (filters.protocol.includes("rdp") && host.enableRdp) ||
       (filters.protocol.includes("vnc") && host.enableVnc) ||
-      (filters.protocol.includes("telnet") && host.enableTelnet);
+      (filters.protocol.includes("telnet") && host.enableTelnet) ||
+      (filters.protocol.includes("ard") && host.enableArd);
     if (!ok) return false;
   }
   if (filters.features.length > 0) {
@@ -459,6 +461,7 @@ export function HostsPanel({
                     enableVnc: h.enableVnc ?? h.connectionType === "vnc",
                     enableTelnet:
                       h.enableTelnet ?? h.connectionType === "telnet",
+                    enableArd: h.enableArd ?? h.connectionType === "ard",
                   }),
                 );
                 const result = await bulkImportSSHHosts(
@@ -791,6 +794,7 @@ export function HostsPanel({
                       ["rdp", "Rdp"],
                       ["vnc", "Vnc"],
                       ["telnet", "Telnet"],
+                      ["ard", "Ard"],
                     ] as const
                   ).map(([val, key]) => (
                     <DropdownMenuCheckboxItem
