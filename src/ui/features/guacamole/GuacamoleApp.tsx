@@ -166,6 +166,12 @@ const GuacamoleAppInner = React.forwardRef<
       : null,
   );
   const displayRef = useRef<GuacamoleDisplayHandle>(null);
+  // Guards fetchToken against overlapping calls -- StrictMode double-invokes
+  // the mount effect below with no cleanup, and a user re-clicking reconnect
+  // while a previous (server-side connect-host can take up to ~10s) attempt
+  // is still in flight would otherwise stack up multiple concurrent guacd
+  // sessions instead of the previous one being superseded.
+  const isFetchingTokenRef = useRef(false);
   const [filesystem, setFilesystem] = useState<Guacamole.Object | null>(null);
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[]>([]);
@@ -215,53 +221,61 @@ const GuacamoleAppInner = React.forwardRef<
   }));
 
   const fetchToken = useCallback(async (): Promise<void> => {
-    setToken(null);
-    setGuacamoleConnectionId(null);
-    setError(null);
+    if (isFetchingTokenRef.current) return;
+    isFetchingTokenRef.current = true;
+    try {
+      setToken(null);
+      setGuacamoleConnectionId(null);
+      setError(null);
 
-    if (isElectron()) {
-      const origin = await resolveConnectionOrigin({
-        connectionType: resolvedProtocolForConnect,
-      });
-      if (origin === "remote") {
-        const remoteConfig = (await window.electronAPI?.invoke?.(
-          "get-remote-sync-config",
-        )) as { serverUrl?: string } | null;
-        if (!remoteConfig?.serverUrl) {
-          throw new Error(t("errors.remoteServerRequired"));
+      if (isElectron()) {
+        const origin = await resolveConnectionOrigin({
+          connectionType: resolvedProtocolForConnect,
+        });
+        if (origin === "remote") {
+          const remoteConfig = (await window.electronAPI?.invoke?.(
+            "get-remote-sync-config",
+          )) as { serverUrl?: string } | null;
+          if (!remoteConfig?.serverUrl) {
+            throw new Error(t("errors.remoteServerRequired"));
+          }
         }
       }
-    }
 
-    addLog({
-      type: "info",
-      stage: "guac_guacd",
-      message: t("guacamole.connecting", {
-        type: resolvedProtocolForConnect.toUpperCase(),
-      }),
-    });
-    const status = await getGuacdStatus();
-    if (status.guacd.status !== "connected") {
-      throw new Error(t("guacamole.guacdUnavailable"));
-    }
+      addLog({
+        type: "info",
+        stage: "guac_guacd",
+        message: t("guacamole.connecting", {
+          type: resolvedProtocolForConnect.toUpperCase(),
+        }),
+      });
+      const status = await getGuacdStatus();
+      if (status.guacd.status !== "connected") {
+        throw new Error(t("guacamole.guacdUnavailable"));
+      }
 
-    addLog({
-      type: "info",
-      stage: "guac_token",
-      message: t("guacamole.connecting", {
-        type: resolvedProtocolForConnect.toUpperCase(),
-      }),
-    });
-    const result = await getGuacamoleTokenFromHost(
-      hostId,
-      protocol,
-      promptedCredentials ?? undefined,
-      hostConfig.syncId,
-    );
-    if (result) {
-      setToken(result.token);
-      setGuacamoleConnectionId(result.guacamoleConnectionId ?? null);
-      logActivity(resolvedProtocolForConnect, hostId, hostName).catch(() => {});
+      addLog({
+        type: "info",
+        stage: "guac_token",
+        message: t("guacamole.connecting", {
+          type: resolvedProtocolForConnect.toUpperCase(),
+        }),
+      });
+      const result = await getGuacamoleTokenFromHost(
+        hostId,
+        protocol,
+        promptedCredentials ?? undefined,
+        hostConfig.syncId,
+      );
+      if (result) {
+        setToken(result.token);
+        setGuacamoleConnectionId(result.guacamoleConnectionId ?? null);
+        logActivity(resolvedProtocolForConnect, hostId, hostName).catch(
+          () => {},
+        );
+      }
+    } finally {
+      isFetchingTokenRef.current = false;
     }
   }, [
     hostId,
