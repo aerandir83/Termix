@@ -777,6 +777,14 @@ router.post(
             {
               port,
               ...guacConfig,
+              // Apple's screen sharing server only speaks standard RFB to us
+              // (its proprietary low-latency extensions aren't available over
+              // plain VNC auth), so remote-rendered cursor updates round-trip
+              // through the same encoded frame pipeline as the rest of the
+              // screen. Rendering the cursor locally removes that round trip
+              // for mouse movement, which is most of what makes a plain RFB
+              // session feel laggier than Apple's own client.
+              cursor: "local",
               ...guacdOverrides,
             },
             recordingMetadata,
