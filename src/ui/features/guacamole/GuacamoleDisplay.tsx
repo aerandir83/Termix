@@ -73,6 +73,12 @@ interface GuacamoleDisplayProps {
   onDropFiles?: (files: File[]) => void;
   onDropUnavailable?: () => void;
   onStageChange?: (stage: ConnectionStage) => void;
+  // Called instead of retrying internally once the connect watchdog decides
+  // to try again. ARD (and potentially other future protocols) mint a
+  // one-shot relay per token that's torn down when its session closes, so
+  // blindly reconnecting with the same cached connectionConfig.token here
+  // would just hit a dead relay -- the parent needs to fetch a fresh token.
+  onNeedsFreshReconnect?: () => void;
 }
 
 const isDev = import.meta.env.DEV;
@@ -100,6 +106,7 @@ export const GuacamoleDisplay = forwardRef<
     onDropFiles,
     onDropUnavailable,
     onStageChange,
+    onNeedsFreshReconnect,
   },
   ref,
 ) {
@@ -641,7 +648,14 @@ export const GuacamoleDisplay = forwardRef<
         disconnectClient();
         setTimeout(() => {
           if (!isMountedRef.current) return;
-          void connect();
+          // Reconnecting with the same connectionConfig.token would hit a
+          // dead one-shot relay for protocols like ARD -- let the parent
+          // mint a fresh token/session when it knows how to.
+          if (onNeedsFreshReconnect) {
+            onNeedsFreshReconnect();
+          } else {
+            void connect();
+          }
         }, backoff);
       }, 8000);
       client.connect(wsConnection.query);
@@ -658,6 +672,7 @@ export const GuacamoleDisplay = forwardRef<
     onConnect,
     onDisconnect,
     onError,
+    onNeedsFreshReconnect,
     refreshKeyboardHandlers,
     rescaleDisplay,
     disconnectClient,

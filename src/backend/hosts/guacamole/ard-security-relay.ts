@@ -294,8 +294,16 @@ async function relayHandshake(
       );
     }
 
-    guacdReader.detach();
-    hostReader.detach();
+    // The real host can send ServerInit (or later messages) immediately
+    // after SecurityResult in the same TCP segment; readExact(4) above only
+    // consumes the result bytes, leaving anything past it sitting in the
+    // reader's buffer. Replay it before piping raw, or it's silently lost
+    // and guacd's libvncclient chokes on the resulting corrupted stream a
+    // moment later ("Error handling message from VNC server").
+    const leftoverToGuacd = hostReader.detach();
+    const leftoverToHost = guacdReader.detach();
+    if (leftoverToGuacd.length) guacdSock.write(leftoverToGuacd);
+    if (leftoverToHost.length) hostSock.write(leftoverToHost);
     guacdSock.pipe(hostSock);
     hostSock.pipe(guacdSock);
   } catch (err) {

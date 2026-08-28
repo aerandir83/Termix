@@ -31,7 +31,10 @@ describe("buildGuacamoleWebSocketBaseUrl", () => {
     ).toBe("wss://termix.example.com/termix/guacamole/websocket/");
   });
 
-  it("keeps direct local websocket access for development and embedded electron", () => {
+  it("routes dev mode through the same-origin Vite proxy, and keeps direct local access for embedded electron", () => {
+    // A hardcoded "localhost" breaks whenever the page is reached through
+    // an SSH tunnel or port-forward that only forwards the Vite dev port --
+    // the WS request must stay same-origin as the page itself.
     expect(
       buildGuacamoleWebSocketBaseUrl({
         isDev: true,
@@ -40,7 +43,7 @@ describe("buildGuacamoleWebSocketBaseUrl", () => {
         basePath: "/termix",
         location: httpsLocation,
       }),
-    ).toBe("ws://localhost:30008");
+    ).toBe("wss://termix.example.com/__termix_api/30008");
 
     expect(
       buildGuacamoleWebSocketBaseUrl({

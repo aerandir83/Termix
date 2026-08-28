@@ -489,6 +489,10 @@ const GuacamoleAppInner = React.forwardRef<
         onFilesystem={setFilesystem}
         onDropFiles={handleDropFiles}
         onDropUnavailable={handleDropUnavailable}
+        onNeedsFreshReconnect={() => {
+          tokenRetryRef.current.reset();
+          tokenRetryRef.current.retryNow();
+        }}
       />
       {filesystem && fileBrowserOpen && (
         <GuacamoleFileBrowser
