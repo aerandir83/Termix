@@ -166,6 +166,8 @@ export class Logger {
         contextParts.push(`duration:${sanitizedContext.duration}ms`);
       if (sanitizedContext.error)
         contextParts.push(`error:${sanitizedContext.error}`);
+      if (sanitizedContext.stage)
+        contextParts.push(`stage:${sanitizedContext.stage}`);
 
       if (contextParts.length > 0) {
         contextStr = chalk.gray(` [${contextParts.join(",")}]`);

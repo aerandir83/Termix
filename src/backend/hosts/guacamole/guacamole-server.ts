@@ -62,6 +62,19 @@ const pendingConnectResolvers = new Map<
   (info: GuacSessionInfo | null) => void
 >();
 
+// Keyed by termixConnectId, holds the close() callback for an ARD session's
+// security-type-rewriting relay (see ard-security-relay.ts), so it can be
+// torn down promptly when guacd's connection closes instead of relying
+// solely on a timeout.
+const ardRelayCleanupByConnectId = new Map<string, () => void>();
+
+export function registerArdRelayCleanup(
+  connectId: string,
+  close: () => void,
+): void {
+  ardRelayCleanupByConnectId.set(connectId, close);
+}
+
 export function waitForGuacdOpen(
   termixConnectId: string,
   timeoutMs = 10000,
@@ -250,6 +263,14 @@ function createGuacServer(): GuacamoleLite {
     if (!isJoin && termixMeta && guacamoleConnectionId) {
       guacSessionByConnectId.delete(termixMeta.termixConnectId);
       guacSessionByGuacamoleId.delete(guacamoleConnectionId);
+
+      const ardCleanup = ardRelayCleanupByConnectId.get(
+        termixMeta.termixConnectId,
+      );
+      if (ardCleanup) {
+        ardCleanup();
+        ardRelayCleanupByConnectId.delete(termixMeta.termixConnectId);
+      }
     }
 
     persistGuacamoleRecording(clientConnection).catch((error) => {
