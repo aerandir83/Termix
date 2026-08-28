@@ -66,6 +66,33 @@ describe("GuacamoleTokenService", () => {
     expect(tokenService.decryptToken(token)?.recording).toEqual(recording);
   });
 
+  it("submits ARD connections to guacd as vnc while keeping termixMeta.protocol as ard", () => {
+    const termixMeta = {
+      termixConnectId: "connect-ard-1",
+      hostId: 9,
+      ownerUserId: "user-1",
+      protocol: "ard" as const,
+    };
+    const token = tokenService.createArdToken(
+      "mac.example.test",
+      "user",
+      "secret",
+      {},
+      undefined,
+      termixMeta,
+    );
+    const decrypted = tokenService.decryptToken(token);
+
+    expect(decrypted?.connection.type).toBe("vnc");
+    expect(decrypted?.connection.settings).toMatchObject({
+      hostname: "mac.example.test",
+      username: "user",
+      password: "secret",
+      port: 5900,
+    });
+    expect(decrypted?.termixMeta).toEqual(termixMeta);
+  });
+
   it("preserves termixMeta through the encrypt/decrypt round trip", () => {
     const termixMeta = {
       termixConnectId: "connect-1",
