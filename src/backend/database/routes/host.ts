@@ -230,10 +230,12 @@ router.post(
       enableRdp,
       enableVnc,
       enableTelnet,
+      enableArd,
       sshPort,
       rdpPort,
       vncPort,
       telnetPort,
+      ardPort,
       rdpAuthType,
       rdpCredentialId,
       rdpUser,
@@ -249,6 +251,10 @@ router.post(
       telnetCredentialId,
       telnetUser,
       telnetPassword,
+      ardAuthType,
+      ardCredentialId,
+      ardUser,
+      ardPassword,
     } = hostData;
     databaseLogger.info("Creating SSH host", {
       operation: "host_create",
@@ -296,7 +302,7 @@ router.post(
       authMethod ||
       (effectiveConnectionType !== "ssh" ? "password" : undefined);
     const effectiveUsername =
-      username || rdpUser || vncUser || telnetUser || "";
+      username || rdpUser || vncUser || telnetUser || ardUser || "";
     const effectiveName =
       name || (effectiveUsername ? `${effectiveUsername}@${ip}` : String(ip));
     const sshDataObj: Record<string, unknown> = {
@@ -396,10 +402,12 @@ router.post(
       enableRdp: enableRdp ? 1 : 0,
       enableVnc: enableVnc ? 1 : 0,
       enableTelnet: enableTelnet ? 1 : 0,
+      enableArd: enableArd ? 1 : 0,
       sshPort: sshPort || port || 22,
       rdpPort: rdpPort || 3389,
       vncPort: vncPort || 5900,
       telnetPort: telnetPort || 23,
+      ardPort: ardPort || 5900,
       rdpAuthType: enableRdp ? rdpAuthType || null : null,
       rdpCredentialId:
         enableRdp && rdpAuthType === "credential" && rdpCredentialId
@@ -421,9 +429,15 @@ router.post(
           ? telnetCredentialId
           : null,
       telnetUser: telnetUser || null,
+      ardAuthType: enableArd ? ardAuthType || null : null,
+      ardCredentialId:
+        enableArd && ardAuthType === "credential" && ardCredentialId
+          ? ardCredentialId
+          : null,
+      ardUser: ardUser || null,
     };
 
-    // For non-SSH hosts (RDP, VNC, Telnet), always save password if provided
+    // For non-SSH hosts (RDP, VNC, Telnet, ARD), always save password if provided
     if (effectiveConnectionType !== "ssh") {
       sshDataObj.password = password || null;
       sshDataObj.key = null;
@@ -479,6 +493,7 @@ router.post(
     sshDataObj.rdpPassword = rdpPassword || null;
     sshDataObj.vncPassword = vncPassword || null;
     sshDataObj.telnetPassword = telnetPassword || null;
+    sshDataObj.ardPassword = ardPassword || null;
 
     try {
       const result = await createCurrentHostRepository().createEncryptedForUser(
@@ -922,10 +937,12 @@ router.put(
       enableRdp,
       enableVnc,
       enableTelnet,
+      enableArd,
       sshPort,
       rdpPort,
       vncPort,
       telnetPort,
+      ardPort,
       rdpAuthType,
       rdpCredentialId,
       rdpUser,
@@ -941,6 +958,10 @@ router.put(
       telnetCredentialId,
       telnetUser,
       telnetPassword,
+      ardAuthType,
+      ardCredentialId,
+      ardUser,
+      ardPassword,
     } = hostData;
     databaseLogger.info("Updating SSH host", {
       operation: "host_update",
@@ -990,7 +1011,7 @@ router.put(
 
     const effectiveAuthType = authType || authMethod;
     const effectiveUsername =
-      username || rdpUser || vncUser || telnetUser || "";
+      username || rdpUser || vncUser || telnetUser || ardUser || "";
     const effectiveName =
       name || (effectiveUsername ? `${effectiveUsername}@${ip}` : String(ip));
     const sshDataObj: Record<string, unknown> = {
@@ -1089,10 +1110,12 @@ router.put(
       enableRdp: enableRdp ? 1 : 0,
       enableVnc: enableVnc ? 1 : 0,
       enableTelnet: enableTelnet ? 1 : 0,
+      enableArd: enableArd ? 1 : 0,
       sshPort: sshPort || port || 22,
       rdpPort: rdpPort || 3389,
       vncPort: vncPort || 5900,
       telnetPort: telnetPort || 23,
+      ardPort: ardPort || 5900,
       rdpAuthType: enableRdp ? rdpAuthType || null : null,
       rdpCredentialId:
         enableRdp && rdpAuthType === "credential" && rdpCredentialId
@@ -1114,9 +1137,15 @@ router.put(
           ? telnetCredentialId
           : null,
       telnetUser: telnetUser || null,
+      ardAuthType: enableArd ? ardAuthType || null : null,
+      ardCredentialId:
+        enableArd && ardAuthType === "credential" && ardCredentialId
+          ? ardCredentialId
+          : null,
+      ardUser: ardUser || null,
     };
 
-    // For non-SSH hosts (RDP, VNC, Telnet), always save password if provided
+    // For non-SSH hosts (RDP, VNC, Telnet, ARD), always save password if provided
     if ((connectionType || "ssh") !== "ssh") {
       if (password) {
         sshDataObj.password = password;
@@ -1181,6 +1210,7 @@ router.put(
     if (rdpPassword) sshDataObj.rdpPassword = rdpPassword;
     if (vncPassword) sshDataObj.vncPassword = vncPassword;
     if (telnetPassword) sshDataObj.telnetPassword = telnetPassword;
+    if (ardPassword) sshDataObj.ardPassword = ardPassword;
 
     if (validatedParentHostId !== undefined) {
       sshDataObj.parentHostId = validatedParentHostId;

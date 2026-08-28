@@ -151,6 +151,7 @@ async function relayHandshake(
     hostSock.pipe(guacdSock);
   };
 
+  let stage = "protocol-version:server";
   try {
     // 1. ProtocolVersion: 12 ASCII bytes each way, relayed unmodified and
     // immediately -- both sides block waiting to receive these before
@@ -158,6 +159,7 @@ async function relayHandshake(
     // handshake.
     const serverVersion = await hostReader.readExact(12);
     guacdSock.write(serverVersion);
+    stage = "protocol-version:client";
     const clientVersion = await guacdReader.readExact(12);
     hostSock.write(clientVersion);
 
@@ -190,6 +192,7 @@ async function relayHandshake(
     }
 
     // 2. SecurityTypes (RFB >= 3.7): 1 count byte + N type-id bytes.
+    stage = "security-types:count";
     const countByte = await hostReader.readExact(1);
     const count = countByte.readUInt8(0);
 
@@ -205,6 +208,7 @@ async function relayHandshake(
       return;
     }
 
+    stage = "security-types:offered";
     const offeredTypes = await hostReader.readExact(count);
     const offeredList = Array.from(offeredTypes.values());
 
@@ -232,6 +236,7 @@ async function relayHandshake(
     guacdSock.write(Buffer.from([1, STANDARD_VNC_AUTH]));
 
     // 3. Client's (guacd's) 1-byte security-type selection.
+    stage = "security-selection:guacd";
     const selection = await guacdReader.readExact(1);
     const selectedType = selection.readUInt8(0);
     if (selectedType !== STANDARD_VNC_AUTH) {
@@ -252,10 +257,13 @@ async function relayHandshake(
     // then a 4-byte SecurityResult. Peeked (not altered) purely so a
     // rejected password is visible in Termix's own logs instead of only
     // guacd's opaque "Unable to connect to VNC server".
+    stage = "vnc-auth:challenge";
     const challenge = await hostReader.readExact(16);
     guacdSock.write(challenge);
+    stage = "vnc-auth:response";
     const response = await guacdReader.readExact(16);
     hostSock.write(response);
+    stage = "vnc-auth:result";
     const securityResult = await hostReader.readExact(4);
     guacdSock.write(securityResult);
     const resultCode = securityResult.readUInt32BE(0);
@@ -296,6 +304,7 @@ async function relayHandshake(
       {
         operation: "guac_ard_relay_parse_error",
         host: hostLabel,
+        stage,
         error: err instanceof Error ? err.message : String(err),
         elapsedMs: Date.now() - handshakeStart,
       },
