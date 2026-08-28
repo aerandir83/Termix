@@ -147,6 +147,13 @@ describe("normalizeImportedHost", () => {
     expect(host.enableRdp).toBe(true);
   });
 
+  it("infers ard from enableArd and uses default ard port", () => {
+    const host = normalizeImportedHost({ enableArd: true, ip: "10.0.0.3" });
+    expect(host.connectionType).toBe("ard");
+    expect(host.port).toBe(5900);
+    expect(host.enableArd).toBe(true);
+  });
+
   it("honors an explicit port over protocol defaults", () => {
     const host = normalizeImportedHost({
       connectionType: "ssh",
@@ -236,26 +243,30 @@ describe("stripSensitiveFields", () => {
     ).toBeUndefined();
   });
 
-  it("strips rdp/vnc/telnet passwords and adds their presence flags", () => {
+  it("strips rdp/vnc/telnet/ard passwords and adds their presence flags", () => {
     const result = stripSensitiveFields({
       name: "rdp-box",
       rdpPassword: "rdp-secret",
       vncPassword: "vnc-secret",
       telnetPassword: "telnet-secret",
+      ardPassword: "ard-secret",
     });
     expect(result.rdpPassword).toBeUndefined();
     expect(result.vncPassword).toBeUndefined();
     expect(result.telnetPassword).toBeUndefined();
+    expect(result.ardPassword).toBeUndefined();
     expect(result.hasRdpPassword).toBe(true);
     expect(result.hasVncPassword).toBe(true);
     expect(result.hasTelnetPassword).toBe(true);
+    expect(result.hasArdPassword).toBe(true);
   });
 
-  it("marks rdp/vnc/telnet presence flags false when absent", () => {
+  it("marks rdp/vnc/telnet/ard presence flags false when absent", () => {
     const result = stripSensitiveFields({ name: "rdp-box" });
     expect(result.hasRdpPassword).toBe(false);
     expect(result.hasVncPassword).toBe(false);
     expect(result.hasTelnetPassword).toBe(false);
+    expect(result.hasArdPassword).toBe(false);
   });
 });
 
@@ -299,6 +310,7 @@ describe("transformHostResponse", () => {
     expect(result.rdpPort).toBe(3389);
     expect(result.vncPort).toBe(5900);
     expect(result.telnetPort).toBe(23);
+    expect(result.ardPort).toBe(5900);
   });
 
   it("coerces enableProxmox and parses proxmoxConfig", () => {

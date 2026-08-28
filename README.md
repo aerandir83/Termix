@@ -58,7 +58,7 @@ Termix is free and open source. If you find it useful, consider [donating](https
 
 ## Overview
 
-Termix is a free, open source, self-hosted platform for managing your servers. It puts SSH terminals, remote desktops (RDP, VNC, Telnet), file transfers, tunnels, Docker, metrics, and automations in one place, on web, desktop, and mobile. It is a self-hosted alternative to Termius that stays free forever.
+Termix is a free, open source, self-hosted platform for managing your servers. It puts SSH terminals, remote desktops (RDP, VNC, Telnet, Apple Remote Desktop), file transfers, tunnels, Docker, metrics, and automations in one place, on web, desktop, and mobile. It is a self-hosted alternative to Termius that stays free forever.
 
 <br />
 
@@ -75,7 +75,7 @@ A full terminal with browser-like tabs and split screen, up to 6 panels at once.
 <td width="50%" valign="top">
 
 **Remote Desktop:**
-RDP, VNC, and Telnet in the browser, in tabs and split screen like any other session. Includes a file browser for RDP drives and drag-and-drop upload. On Windows desktop you can also open a host in the native RDP client.
+RDP, VNC, Telnet, and Apple Remote Desktop in the browser, in tabs and split screen like any other session. Includes a file browser for RDP drives and drag-and-drop upload. On Windows desktop you can also open a host in the native RDP client.
 
 </td>
 </tr>
@@ -173,7 +173,7 @@ Save commands you run often and fire them off in one click, with variables for t
 <td width="50%" valign="top">
 
 **Session Sharing:**
-Share a live terminal, RDP, VNC, or Telnet session in real time. Send a link anyone can join without an account, or share with a specific Termix user, in read-only or read-write mode. Shares can expire on their own or be revoked, and can be turned off globally or per host.
+Share a live terminal, RDP, VNC, Telnet, or Apple Remote Desktop session in real time. Send a link anyone can join without an account, or share with a specific Termix user, in read-only or read-write mode. Shares can expire on their own or be revoked, and can be turned off globally or per host.
 
 </td>
 </tr>

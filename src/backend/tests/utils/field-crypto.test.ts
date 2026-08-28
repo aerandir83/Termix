@@ -84,6 +84,34 @@ describe("FieldCrypto.shouldEncryptField", () => {
     ).toBe(true);
   });
 
+  it("treats ardPassword the same as rdp/vnc/telnetPassword", () => {
+    expect(FieldCrypto.shouldEncryptField("ssh_data", "rdpPassword")).toBe(
+      true,
+    );
+    expect(FieldCrypto.shouldEncryptField("ssh_data", "vncPassword")).toBe(
+      true,
+    );
+    expect(FieldCrypto.shouldEncryptField("ssh_data", "telnetPassword")).toBe(
+      true,
+    );
+    expect(FieldCrypto.shouldEncryptField("ssh_data", "ardPassword")).toBe(
+      true,
+    );
+  });
+
+  it("round-trips ardPassword through encryptField/decryptField", () => {
+    const encrypted = FieldCrypto.encryptField(
+      "ard-secret",
+      masterKey,
+      "host-1",
+      "ardPassword",
+    );
+    expect(FieldCrypto.isEncrypted(encrypted)).toBe(true);
+    expect(
+      FieldCrypto.decryptField(encrypted, masterKey, "host-1", "ardPassword"),
+    ).toBe("ard-secret");
+  });
+
   it("returns false for non-encrypted fields and unknown tables", () => {
     expect(FieldCrypto.shouldEncryptField("users", "username")).toBe(false);
     expect(FieldCrypto.shouldEncryptField("unknown_table", "password")).toBe(

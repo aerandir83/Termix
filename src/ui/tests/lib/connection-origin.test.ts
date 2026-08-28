@@ -12,9 +12,9 @@ afterEach(() => {
 });
 
 describe("resolveConnectionOrigin", () => {
-  it("always resolves rdp/vnc/telnet to remote, even with a local override", async () => {
+  it("always resolves rdp/vnc/telnet/ard to remote, even with a local override", async () => {
     win.IS_ELECTRON = true;
-    for (const connectionType of ["rdp", "vnc", "telnet"]) {
+    for (const connectionType of ["rdp", "vnc", "telnet", "ard"]) {
       await expect(
         resolveConnectionOrigin({ connectionType, connectionOrigin: "local" }),
       ).resolves.toBe("remote");
