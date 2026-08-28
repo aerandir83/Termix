@@ -140,6 +140,7 @@ async function relayHandshake(
 ): Promise<void> {
   const guacdReader = new SocketReader(guacdSock);
   const hostReader = new SocketReader(hostSock);
+  const handshakeStart = Date.now();
 
   const finishWithRawPipe = () => {
     const leftoverToGuacd = hostReader.detach();
@@ -247,6 +248,44 @@ async function relayHandshake(
     // offered by the real host, so this is a truthful selection.
     hostSock.write(selection);
 
+    // 4. Standard VNC auth (type 2): 16-byte challenge, 16-byte response,
+    // then a 4-byte SecurityResult. Peeked (not altered) purely so a
+    // rejected password is visible in Termix's own logs instead of only
+    // guacd's opaque "Unable to connect to VNC server".
+    const challenge = await hostReader.readExact(16);
+    guacdSock.write(challenge);
+    const response = await guacdReader.readExact(16);
+    hostSock.write(response);
+    const securityResult = await hostReader.readExact(4);
+    guacdSock.write(securityResult);
+    const resultCode = securityResult.readUInt32BE(0);
+    if (resultCode !== 0) {
+      let reason = "";
+      try {
+        const reasonLenBuf = await hostReader.readExact(4);
+        const reasonLen = reasonLenBuf.readUInt32BE(0);
+        if (reasonLen > 0 && reasonLen < 4096) {
+          const reasonBuf = await hostReader.readExact(reasonLen);
+          reason = reasonBuf.toString("utf8");
+          guacdSock.write(reasonLenBuf);
+          guacdSock.write(reasonBuf);
+        } else {
+          guacdSock.write(reasonLenBuf);
+        }
+      } catch {
+        // RFB 3.3/3.7 servers don't send a reason string -- fine to omit.
+      }
+      guacLogger.warn(
+        "ARD security relay: real host rejected VNC authentication",
+        { operation: "guac_ard_relay_auth_rejected", host: hostLabel, reason },
+      );
+    } else {
+      guacLogger.info(
+        "ARD security relay: VNC authentication accepted by real host",
+        { operation: "guac_ard_relay_auth_ok", host: hostLabel },
+      );
+    }
+
     guacdReader.detach();
     hostReader.detach();
     guacdSock.pipe(hostSock);
@@ -258,6 +297,7 @@ async function relayHandshake(
         operation: "guac_ard_relay_parse_error",
         host: hostLabel,
         error: err instanceof Error ? err.message : String(err),
+        elapsedMs: Date.now() - handshakeStart,
       },
     );
     finishWithRawPipe();
