@@ -189,11 +189,12 @@ app.post("/activity/log", async (req, res) => {
         "telnet",
         "vnc",
         "rdp",
+        "ard",
       ].includes(type)
     ) {
       return res.status(400).json({
         error:
-          "Invalid activity type. Must be 'terminal', 'file_manager', 'server_stats', 'tunnel', 'docker', 'telnet', 'vnc', or 'rdp'",
+          "Invalid activity type. Must be 'terminal', 'file_manager', 'server_stats', 'tunnel', 'docker', 'telnet', 'vnc', 'rdp', or 'ard'",
       });
     }
 

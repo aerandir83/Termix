@@ -19,6 +19,7 @@ const FEATURE_ACTIVITY_TYPES = [
   "telnet",
   "vnc",
   "rdp",
+  "ard",
   "server_stats",
 ] as const;
 

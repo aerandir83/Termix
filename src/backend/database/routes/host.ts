@@ -1838,7 +1838,7 @@ router.get(
 
       const exportedConnectionType =
         (resolvedHost.connectionType as string) || "ssh";
-      const isRemoteDesktop = ["rdp", "vnc", "telnet"].includes(
+      const isRemoteDesktop = ["rdp", "vnc", "telnet", "ard"].includes(
         exportedConnectionType,
       );
 
@@ -2017,7 +2017,7 @@ router.get(
 
         const exportedConnectionType =
           (resolvedHost.connectionType as string) || "ssh";
-        const isRemoteDesktop = ["rdp", "vnc", "telnet"].includes(
+        const isRemoteDesktop = ["rdp", "vnc", "telnet", "ard"].includes(
           exportedConnectionType,
         );
 

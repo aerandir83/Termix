@@ -22,7 +22,7 @@ const tokenService = GuacamoleTokenService.getInstance();
 const DEFAULT_EXPIRY_HOURS = 24;
 const MAX_EXPIRY_HOURS = 24 * 30;
 
-type Protocol = "ssh" | "rdp" | "vnc" | "telnet";
+type Protocol = "ssh" | "rdp" | "vnc" | "telnet" | "ard";
 type PermissionLevel = "read-only" | "read-write";
 
 interface ResolveRateEntry {
@@ -176,7 +176,7 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     if (!hostId || !sessionId || !protocol || !shareType || !permissionLevel) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-    if (!["ssh", "rdp", "vnc", "telnet"].includes(protocol)) {
+    if (!["ssh", "rdp", "vnc", "telnet", "ard"].includes(protocol)) {
       return res.status(400).json({ error: "Invalid protocol" });
     }
     if (!["link", "user"].includes(shareType)) {

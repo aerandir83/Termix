@@ -53,7 +53,7 @@ router.use(authManager.createAuthMiddleware());
  *             properties:
  *               type:
  *                 type: string
- *                 enum: [rdp, vnc, telnet]
+ *                 enum: [rdp, vnc, telnet, ard]
  *               hostname:
  *                 type: string
  *               port:
@@ -96,9 +96,9 @@ router.post("/token", async (req, res) => {
         .json({ error: "Missing required fields: type and hostname" });
     }
 
-    if (!["rdp", "vnc", "telnet"].includes(type)) {
+    if (!["rdp", "vnc", "telnet", "ard"].includes(type)) {
       return res.status(400).json({
-        error: "Invalid connection type. Must be rdp, vnc, or telnet",
+        error: "Invalid connection type. Must be rdp, vnc, telnet, or ard",
       });
     }
 
@@ -134,6 +134,17 @@ router.post("/token", async (req, res) => {
           ...options,
         });
         break;
+      case "ard":
+        token = tokenService.createArdToken(
+          hostname,
+          username || undefined,
+          password,
+          {
+            port: port || 5900,
+            ...options,
+          },
+        );
+        break;
       default:
         return res.status(400).json({ error: "Invalid connection type" });
     }
@@ -152,7 +163,7 @@ router.post("/token", async (req, res) => {
  * /guacamole/connect-host/{hostId}:
  *   post:
  *     summary: Generate Guacamole connection token from host configuration
- *     description: Fetches host configuration from database and generates a connection token for RDP/VNC/Telnet
+ *     description: Fetches host configuration from database and generates a connection token for RDP/VNC/Telnet/ARD
  *     tags:
  *       - Guacamole
  *     security:
@@ -173,7 +184,7 @@ router.post("/token", async (req, res) => {
  *             properties:
  *               protocol:
  *                 type: string
- *                 enum: [rdp, vnc, telnet]
+ *                 enum: [rdp, vnc, telnet, ard]
  *                 description: Override the host's default connection type
  *               promptedUsername:
  *                 type: string
@@ -250,9 +261,9 @@ router.post(
       const connectionType =
         requestedProtocol || (host.connectionType as string);
 
-      if (!["rdp", "vnc", "telnet"].includes(connectionType)) {
+      if (!["rdp", "vnc", "telnet", "ard"].includes(connectionType)) {
         return res.status(400).json({
-          error: `Connection type '${connectionType}' is not supported for remote desktop. Only RDP, VNC, and Telnet are supported.`,
+          error: `Connection type '${connectionType}' is not supported for remote desktop. Only RDP, VNC, Telnet, and ARD are supported.`,
         });
       }
 
@@ -262,12 +273,14 @@ router.post(
       const rdpRaw = !!host.enableRdp;
       const vncRaw = !!host.enableVnc;
       const telRaw = !!host.enableTelnet;
+      const ardRaw = !!host.enableArd;
       const isMigratedNonSsh =
-        !rdpRaw && !vncRaw && !telRaw && ct && ct !== "ssh";
+        !rdpRaw && !vncRaw && !telRaw && !ardRaw && ct && ct !== "ssh";
       const protocolEnabledMap: Record<string, boolean> = {
         rdp: isMigratedNonSsh ? ct === "rdp" : rdpRaw,
         vnc: isMigratedNonSsh ? ct === "vnc" : vncRaw,
         telnet: isMigratedNonSsh ? ct === "telnet" : telRaw,
+        ard: isMigratedNonSsh ? ct === "ard" : ardRaw,
       };
       if (!protocolEnabledMap[connectionType]) {
         return res.status(400).json({
@@ -329,6 +342,8 @@ router.post(
         host.vncPassword = null;
         host.telnetUser = null;
         host.telnetPassword = null;
+        host.ardUser = null;
+        host.ardPassword = null;
 
         try {
           const { SharedHostSecretsManager } =
@@ -337,7 +352,7 @@ router.post(
             await SharedHostSecretsManager.getInstance().getSecretForUser(
               hostId,
               userId,
-              connectionType as "rdp" | "vnc" | "telnet",
+              connectionType as "rdp" | "vnc" | "telnet" | "ard",
             );
           if (secret) {
             if (connectionType === "rdp") {
@@ -350,6 +365,9 @@ router.post(
             } else if (connectionType === "telnet") {
               host.telnetUser = secret.username ?? null;
               host.telnetPassword = secret.password ?? null;
+            } else if (connectionType === "ard") {
+              host.ardUser = secret.username ?? null;
+              host.ardPassword = secret.password ?? null;
             }
           }
         } catch (e) {
@@ -371,6 +389,9 @@ router.post(
         const telnetEffectiveAuthType =
           (host.telnetAuthType as string) ||
           (hostRecord.telnetCredentialId ? "credential" : "direct");
+        const ardEffectiveAuthType =
+          (host.ardAuthType as string) ||
+          (hostRecord.ardCredentialId ? "credential" : "direct");
 
         if (rdpEffectiveAuthType === "credential" && host.rdpCredentialId) {
           try {
@@ -432,6 +453,28 @@ router.post(
             });
           }
         }
+
+        if (
+          ardEffectiveAuthType === "credential" &&
+          hostRecord.ardCredentialId
+        ) {
+          try {
+            const cred = await hostRepository.findCredentialByIdForUser(
+              hostRecord.ardCredentialId as number,
+              host.userId as string,
+            );
+            if (cred) {
+              if (cred.username) host.ardUser = cred.username;
+              if (cred.password) host.ardPassword = cred.password;
+            }
+          } catch (e) {
+            guacLogger.warn("Failed to resolve ARD credential", {
+              operation: "guac_ard_credential_resolve",
+              hostId,
+              error: getErrorMessage(e, "Unknown"),
+            });
+          }
+        }
       }
 
       let token: string;
@@ -469,6 +512,12 @@ router.post(
           password =
             (host.telnetPassword as string) || (host.password as string) || "";
           port = (host.telnetPort as number) || port || 23;
+          break;
+        case "ard":
+          username = (host.ardUser as string) || "";
+          password =
+            (host.ardPassword as string) || (host.password as string) || "";
+          port = (host.ardPort as number) || port || 5900;
           break;
         default:
           username = "";
@@ -583,7 +632,9 @@ router.post(
           : {}),
       };
       const recordingEnabled =
-        connectionType !== "vnc" && host.enableSessionLogging !== false;
+        connectionType !== "vnc" &&
+        connectionType !== "ard" &&
+        host.enableSessionLogging !== false;
       const recordingName = `${crypto.randomUUID()}.guac`;
       const recordingPath =
         process.env.GUACD_RECORDING_PATH ||
@@ -593,7 +644,7 @@ router.post(
         ? {
             hostId,
             userId,
-            protocol: connectionType as "rdp" | "vnc" | "telnet",
+            protocol: connectionType as "rdp" | "vnc" | "telnet" | "ard",
             path: recordingName,
             guacdPath: recordingPath,
             startedAt: new Date().toISOString(),
@@ -612,7 +663,7 @@ router.post(
         termixConnectId,
         hostId,
         ownerUserId: userId,
-        protocol: connectionType as "rdp" | "vnc" | "telnet",
+        protocol: connectionType as "rdp" | "vnc" | "telnet" | "ard",
       };
 
       switch (connectionType) {
@@ -663,6 +714,20 @@ router.post(
           token = tokenService.createTelnetToken(
             hostname,
             username,
+            password,
+            {
+              port,
+              ...guacConfig,
+              ...guacdOverrides,
+            },
+            recordingMetadata,
+            termixMeta,
+          );
+          break;
+        case "ard":
+          token = tokenService.createArdToken(
+            hostname,
+            username || undefined,
             password,
             {
               port,
