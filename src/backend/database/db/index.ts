@@ -1031,6 +1031,20 @@ const migrateSchema = () => {
   addColumnIfNotExists("ssh_data", "autostart_key_password", "TEXT");
   addColumnIfNotExists(
     "ssh_data",
+    "enable_ard",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfNotExists("ssh_data", "ard_port", "INTEGER DEFAULT 5900");
+  addColumnIfNotExists(
+    "ssh_data",
+    "ard_credential_id",
+    "INTEGER REFERENCES ssh_credentials(id)",
+  );
+  addColumnIfNotExists("ssh_data", "ard_password", "TEXT");
+  addColumnIfNotExists("ssh_data", "ard_user", "TEXT");
+  addColumnIfNotExists("ssh_data", "ard_auth_type", "TEXT");
+  addColumnIfNotExists(
+    "ssh_data",
     "credential_id",
     "INTEGER REFERENCES ssh_credentials(id) ON DELETE SET NULL",
   );
