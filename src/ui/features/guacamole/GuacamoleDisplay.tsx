@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { getGuacamoleToken, isElectron } from "@/main-axios.ts";
 import { getBasePath } from "@/lib/base-path.ts";
 import { buildGuacamoleWebSocketBaseUrl } from "./guacamole-websocket-url.ts";
+import { computeReconnectDelay } from "@/lib/useConnectionRetry.ts";
 import {
   resolveConnectionOrigin,
   buildOriginWsUrl,
@@ -76,6 +77,13 @@ interface GuacamoleDisplayProps {
 
 const isDev = import.meta.env.DEV;
 
+// Mirrors useConnectionRetry's cap: without a limit, a connection that never
+// reaches "connected" (e.g. guacd rejecting the handshake) retries every 8s
+// forever instead of surfacing an error.
+const WATCHDOG_MAX_ATTEMPTS = 8;
+const WATCHDOG_BASE_DELAY_MS = 2000;
+const WATCHDOG_MAX_DELAY_MS = 8000;
+
 export const GuacamoleDisplay = forwardRef<
   GuacamoleDisplayHandle,
   GuacamoleDisplayProps
@@ -121,6 +129,7 @@ export const GuacamoleDisplay = forwardRef<
   const hasInitiatedRef = useRef(false);
   const isMountedRef = useRef(false);
   const isConnectingRef = useRef(false);
+  const watchdogAttemptRef = useRef(0);
   const [isReady, setIsReady] = useState(false);
   const [hasError, setHasError] = useState(false);
 
@@ -510,6 +519,7 @@ export const GuacamoleDisplay = forwardRef<
         case 3:
           clearConnectWatchdog();
           isConnectingRef.current = false;
+          watchdogAttemptRef.current = 0;
           setIsReady(true);
           onConnect?.();
           // A configured resolution is the size the session should render at;
@@ -612,8 +622,27 @@ export const GuacamoleDisplay = forwardRef<
           return;
         }
 
+        if (watchdogAttemptRef.current >= WATCHDOG_MAX_ATTEMPTS) {
+          disconnectClient();
+          isConnectingRef.current = false;
+          setIsReady(false);
+          setHasError(true);
+          onError?.(t("guacamole.connectionError"));
+          onDisconnect?.();
+          return;
+        }
+
+        watchdogAttemptRef.current += 1;
+        const backoff = computeReconnectDelay(
+          watchdogAttemptRef.current,
+          WATCHDOG_BASE_DELAY_MS,
+          WATCHDOG_MAX_DELAY_MS,
+        );
         disconnectClient();
-        void connect();
+        setTimeout(() => {
+          if (!isMountedRef.current) return;
+          void connect();
+        }, backoff);
       }, 8000);
       client.connect(wsConnection.query);
     } catch (error) {
