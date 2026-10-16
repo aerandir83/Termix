@@ -8,10 +8,11 @@ import {
 } from "../repositories/factory.js";
 import {
   defaultUiPreferences,
+  sanitizeOnboarding,
   sanitizeUiPreferences,
-  UI_ONBOARDING_VERSION,
   type UiPreferences,
 } from "../../../types/ui-preferences.js";
+import { LEGACY_SEEN, mergeSeen } from "../../../types/onboarding.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -21,13 +22,12 @@ const authenticateJWT = authManager.createAuthMiddleware();
 const NEW_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Existing users must never be ambushed by onboarding. A user with no
- * ui_preferences row who registered more than a day ago predates this feature,
- * so they are handed a completed onboarding state. This is a read-time default
- * rather than a migration write: nothing is persisted until the user actually
- * changes something, so it stays correct on a fresh database too.
+ * Existing users must never be ambushed by onboarding. A user who never
+ * finished it and registered more than a day ago predates this feature, so
+ * they count as having seen every core step, and the client silently marks
+ * the plugin steps they have now as seen too (baselinePending).
  */
-function withOnboardingBackfill(
+export function withOnboardingBackfill(
   preferences: UiPreferences,
   registeredAt: string | null | undefined,
 ): UiPreferences {
@@ -36,13 +36,21 @@ function withOnboardingBackfill(
     Number.isFinite(registeredMs) &&
     Date.now() - registeredMs < NEW_ACCOUNT_WINDOW_MS;
 
-  if (isNewAccount) return preferences;
+  const { onboarding } = preferences;
+  if (
+    isNewAccount ||
+    onboarding.completedAt ||
+    Object.keys(onboarding.seen).length > 0
+  ) {
+    return preferences;
+  }
 
   return {
     ...preferences,
     onboarding: {
-      ...preferences.onboarding,
-      completedVersion: UI_ONBOARDING_VERSION,
+      ...onboarding,
+      seen: { ...LEGACY_SEEN },
+      baselinePending: true,
     },
   };
 }
@@ -52,7 +60,7 @@ function withOnboardingBackfill(
  * /ui-preferences:
  *   get:
  *     summary: Get the UI complexity preferences for the current user
- *     description: Returns the current user's interface preset (simple, balanced, advanced or custom), their per-area overrides, and their onboarding state. A first-time GET returns defaults without writing a row; a row is only created once the user actually changes something via PUT. Users who registered before this feature existed are returned an already-completed onboarding state so they are never shown the first-run flow.
+ *     description: Returns the current user's interface preset (simple, balanced, advanced or custom), their per-area overrides, and their onboarding state (which onboarding steps they have seen, by version). A first-time GET returns defaults without writing a row; a row is only created once the user actually changes something via PUT. Users who registered more than a day ago and never finished onboarding are returned as having seen every core step, so they are never shown the first-run flow.
  *     tags:
  *       - UI Preferences
  *     responses:
@@ -65,18 +73,16 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
     const existing =
       await createCurrentUiPreferenceRepository().findByUserId(userId);
 
-    if (existing) {
-      return res.json({
-        preferences: sanitizeUiPreferences(JSON.parse(existing.data)),
-      });
+    const stored = existing
+      ? sanitizeUiPreferences(JSON.parse(existing.data))
+      : defaultUiPreferences();
+    if (stored.onboarding.completedAt) {
+      return res.json({ preferences: stored });
     }
 
     const user = await createCurrentUserRepository().findById(userId);
     return res.json({
-      preferences: withOnboardingBackfill(
-        defaultUiPreferences(),
-        user?.registeredAt,
-      ),
+      preferences: withOnboardingBackfill(stored, user?.registeredAt),
     });
   } catch (e) {
     databaseLogger.error("Failed to get UI preferences", e, {
@@ -92,7 +98,7 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
  * /ui-preferences:
  *   put:
  *     summary: Update the UI complexity preferences for the current user
- *     description: Persists the current user's interface preset, per-area overrides and onboarding state as a single JSON document. Overrides are merged two levels deep, so a request only has to send the keys it changes. A null at a key clears that single override; a null at an area clears every override for that area; a null at overrides clears all of them.
+ *     description: Persists the current user's interface preset, per-area overrides and onboarding state as a single JSON document. Overrides are merged two levels deep, so a request only has to send the keys it changes. A null at a key clears that single override; a null at an area clears every override for that area; a null at overrides clears all of them. Onboarding seen versions are merged per step and never go down, so two open tabs cannot undo each other.
  *     tags:
  *       - UI Preferences
  *     requestBody:
@@ -117,9 +123,15 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
   try {
     const repository = createCurrentUiPreferenceRepository();
     const existing = await repository.findByUserId(userId);
-    const base = existing
+    const stored = existing
       ? sanitizeUiPreferences(JSON.parse(existing.data))
       : defaultUiPreferences();
+    const base = stored.onboarding.completedAt
+      ? stored
+      : withOnboardingBackfill(
+          stored,
+          (await createCurrentUserRepository().findById(userId))?.registeredAt,
+        );
 
     const body = req.body as Record<string, unknown>;
 
@@ -161,10 +173,7 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
       // Must come after the body spread, or a raw overrides payload would
       // clobber the merge above.
       overrides: mergedOverrides,
-      onboarding: {
-        ...base.onboarding,
-        ...((body.onboarding as Record<string, unknown>) ?? {}),
-      },
+      onboarding: mergeOnboarding(base, body.onboarding),
     });
 
     await repository.upsert(userId, JSON.stringify(merged));
@@ -178,5 +187,19 @@ router.put("/", authenticateJWT, async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to update UI preferences" });
   }
 });
+
+function mergeOnboarding(base: UiPreferences, patch: unknown) {
+  if (!patch || typeof patch !== "object") return base.onboarding;
+  const incoming = sanitizeOnboarding({
+    ...base.onboarding,
+    ...(patch as Record<string, unknown>),
+    seen: (patch as Record<string, unknown>).seen ?? {},
+  });
+  return {
+    ...incoming,
+    seen: mergeSeen(base.onboarding.seen, incoming.seen),
+    completedAt: incoming.completedAt ?? base.onboarding.completedAt,
+  };
+}
 
 export default router;

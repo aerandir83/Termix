@@ -1,9 +1,9 @@
 import { useState } from "react";
+import { useSshAuthProviders } from "@/hooks/useSshAuthProviders";
 import { useTranslation } from "react-i18next";
 import {
   ArrowUpDown,
   Check,
-  ExternalLink,
   Filter,
   GripVertical,
   Plus,
@@ -12,7 +12,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { HostManager } from "@/sidebar/HostManager";
+import { CredentialList } from "@/sidebar/CredentialList";
+import { requestManage } from "@/manage/manage-requests";
 import { useCredentialSidebarPreferences } from "@/sidebar/credential-tree/hooks/useCredentialSidebarPreferences";
 import { useArrangeLock } from "@/sidebar/use-arrange-lock";
 import { CustomizeCredentialsSidebarPanel } from "@/sidebar/CustomizeCredentialsSidebarPanel";
@@ -27,19 +28,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/dropdown-menu";
 import type { CredentialSortKey } from "@/types/credential-sidebar-preferences";
+import { DocsLink } from "@/components/docs-link";
 
 export function CredentialsPanel({
-  onEditingChange,
-  active = true,
+  active: _active = true,
 }: {
   onEditingChange?: (editing: boolean) => void;
   active?: boolean;
 }) {
   const { t } = useTranslation();
+  const sshAuthProviders = useSshAuthProviders();
   const { preferences: sidebarPrefs, update: updateSidebarPrefs } =
     useCredentialSidebarPreferences();
   const [search, setSearch] = useState("");
-  const [managerEditing, setManagerEditing] = useState(false);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [customizePanelOpen, setCustomizePanelOpen] = useState(false);
 
@@ -92,14 +93,9 @@ export function CredentialsPanel({
     }));
   }
 
-  function handleEditingChange(editing: boolean) {
-    setManagerEditing(editing);
-    onEditingChange?.(editing);
-  }
-
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      {!managerEditing && (
+      {
         <div className="flex flex-col px-2 py-1.5 shrink-0 border-b border-border/60 gap-1.5">
           <div className="flex items-center gap-2 px-2.5 h-7 bg-muted/60 border border-border/60 rounded-sm">
             <Search className="size-3 text-muted-foreground/60 shrink-0" />
@@ -233,18 +229,23 @@ export function CredentialsPanel({
                   <DropdownMenuLabel>
                     {t("credentials.filterTypeGroup")}
                   </DropdownMenuLabel>
-                  {(["password", "key"] as const).map((val) => (
-                    <DropdownMenuCheckboxItem
-                      key={val}
-                      checked={filterState.type.includes(val)}
-                      onCheckedChange={() => handleFilterToggle("type", val)}
-                      onSelect={(e) => e.preventDefault()}
-                    >
-                      {t(
-                        `credentials.filterType${val.charAt(0).toUpperCase() + val.slice(1)}`,
-                      )}
-                    </DropdownMenuCheckboxItem>
-                  ))}
+                  {sshAuthProviders.providers
+                    .filter((option) => option.credentialType)
+                    .map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option.type}
+                        checked={filterState.type.includes(option.type)}
+                        onCheckedChange={() =>
+                          handleFilterToggle("type", option.type)
+                        }
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {t(
+                          `credentials.filterType${option.type.charAt(0).toUpperCase() + option.type.slice(1)}`,
+                          { defaultValue: t(option.labelKey) },
+                        )}
+                      </DropdownMenuCheckboxItem>
+                    ))}
                   {allTags.length > 0 && (
                     <>
                       <DropdownMenuSeparator />
@@ -268,15 +269,7 @@ export function CredentialsPanel({
                 </DropdownMenuContent>
               </DropdownMenu>
               <div className="w-px self-stretch bg-border" />
-              <a
-                href="https://docs.termix.site/features/files-and-hosts/credentials"
-                target="_blank"
-                rel="noreferrer"
-                title={t("hosts.docsLink")}
-                className="flex items-center justify-center size-7 text-muted-foreground hover:text-foreground shrink-0 transition-colors"
-              >
-                <ExternalLink className="size-3.5" />
-              </a>
+              <DocsLink core="credentials" variant="icon" />
             </div>
             <div className="flex items-center border border-border shrink-0">
               <button
@@ -290,9 +283,7 @@ export function CredentialsPanel({
             <div className="flex items-center border border-accent-brand/30 ml-auto shrink-0">
               <button
                 onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent("host-manager:add-credential"),
-                  )
+                  requestManage({ kind: "credential", credentialId: null })
                 }
                 title={t("credentials.addCredential")}
                 className="flex items-center justify-center gap-1 h-7 px-2 text-[10px] font-medium text-accent-brand hover:bg-accent-brand/10 transition-colors"
@@ -305,21 +296,19 @@ export function CredentialsPanel({
             </div>
           </div>
         </div>
-      )}
+      }
 
       <div className="flex flex-col flex-1 min-h-0">
-        <HostManager
-          hideListHeader
-          externalSearch={managerEditing ? undefined : search}
-          externalSort={sortKey}
-          externalArrangeLocked={arrangeLocked}
-          externalFilter={filterState}
+        <CredentialList
+          search={search}
+          sort={sortKey}
+          arrangeLocked={arrangeLocked}
+          filter={filterState}
           density={sidebarPrefs.display.density}
           trayTrigger={sidebarPrefs.display.trayTrigger}
           showTags={sidebarPrefs.display.showTags}
+          rowFields={sidebarPrefs.display}
           onTagsChange={setAllTags}
-          onEditingChange={handleEditingChange}
-          active={active}
         />
       </div>
 

@@ -29,12 +29,12 @@ describe("VersionBadge", () => {
     expect(link.textContent).toBe(UPDATE_TEXT);
   });
 
-  it("keeps the yellow update treatment on the link", () => {
+  it("keeps the warning update treatment on the link", () => {
     render(<VersionBadge status="requires_update" releaseUrl={RELEASE_URL} />);
 
     const className = screen.getByRole("link").className;
-    expect(className).toContain("bg-yellow-500/20");
-    expect(className).toContain("text-yellow-400");
+    expect(className).toContain("bg-warning/20");
+    expect(className).toContain("text-warning");
     expect(className).toContain("hover:underline");
   });
 
@@ -74,7 +74,7 @@ describe("VersionBadge", () => {
 
     const className = screen.getByRole("link").className;
     expect(className).toContain("w-fit");
-    expect(className).toContain("bg-yellow-500/20");
+    expect(className).toContain("bg-warning/20");
   });
 
   it("applies the className on the inert span too", () => {
@@ -92,4 +92,9 @@ describe("VersionBadge", () => {
     const badge = screen.getByText("dashboardTab.stable");
     expect(badge.className).toBe(badge.className.trim());
   });
+});
+
+it("does not claim the installed version is current when the update check failed", () => {
+  const { container } = render(<VersionBadge status="unknown" />);
+  expect(container.textContent).toBe("");
 });

@@ -3,6 +3,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const safeFetch = vi.hoisted(() => vi.fn());
 const logs = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn() }));
 
+vi.mock("../../database/repositories/factory.js", () => ({
+  getCurrentSettingValue: () => null,
+}));
 vi.mock("../../utils/safe-outbound-fetch.js", () => ({
   safeOutboundFetch: safeFetch,
 }));
@@ -120,7 +123,7 @@ describe("forwardAuditEntry", () => {
     );
   });
 
-  it("swallows transport errors — a dead SIEM must not break auditing", async () => {
+  it("swallows transport errors, a dead SIEM must not break auditing", async () => {
     safeFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
     await expect(forwardAuditEntry(ENTRY, NOW, env)).resolves.toBe(false);
@@ -137,7 +140,7 @@ describe("forwardAuditEntry", () => {
       await forwardAuditEntry(ENTRY, NOW, env);
     }
 
-    // 5 per-entry warnings, then one suppression notice — not 8.
+    // 5 per-entry warnings, then one suppression notice, not 8.
     const perEntry = logs.warn.mock.calls.filter(
       (call) => call[0] === "Failed to forward audit entry",
     );

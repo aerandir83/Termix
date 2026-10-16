@@ -65,4 +65,9 @@ describe("getStatusClasses", () => {
   it("uses the accent color for the accent scheme", () => {
     expect(getStatusClasses(true, "accent", "dot")).toContain("accent-brand");
   });
+
+  it("draws an unchecked host as loading", () => {
+    expect(getStatusClasses("unknown", "accent", "dot")).toContain("pulse");
+    expect(getStatusClasses("unknown", "status", "dot")).toContain("pulse");
+  });
 });

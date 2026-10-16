@@ -1,27 +1,61 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Eye, EyeOff, FolderSearch, Terminal } from "lucide-react";
+import { toast } from "sonner";
 import { Input } from "@/components/input";
+import { PasswordInput } from "@/components/password-input";
+import { Textarea } from "@/components/textarea";
+import { GroupHeading, PANEL } from "@/components/panel-layout";
 import type { Host } from "@/types/ui-types";
 import { getCredentials } from "@/api/credentials-api";
 import { mapCredentials } from "./HostManagerData";
-import { createQuickConnectHost } from "./quick-connect-host";
+import { resolveHostDefaults } from "@/api/host-defaults-api";
+import {
+  pluginSettingsFrom,
+  withDefaultPluginSettings,
+} from "./host-defaults/quick-connect-defaults";
+import {
+  createQuickConnectHost,
+  quickConnectTargets,
+} from "./quick-connect-host";
+import { useHostProtocols } from "./host-protocols";
+import { Select2 } from "@/components/select2";
+import { useSshAuthProviders } from "@/hooks/useSshAuthProviders";
+import { useSshAuthEditors } from "@/plugin-host/auth-registry";
+import { useHostActions, type HostActionDef } from "./host-contributions";
+
+// Core types Quick Connect draws its own fields for.
+const INLINE_AUTH_TYPES = new Set(["password", "key", "credential"]);
+
+const LABEL_CLASS =
+  "text-[10px] font-semibold uppercase tracking-widest text-muted-foreground";
+const SELECT_CLASS =
+  "flex h-8 w-full border border-border bg-background px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-ring";
 
 interface QuickConnectPanelProps {
-  onConnect: (host: Host, type: "terminal" | "files") => void;
+  onConnect: (host: Host, type: string) => void;
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 min-w-0">
+      <label className={LABEL_CLASS}>{label}</label>
+      {children}
+    </div>
+  );
 }
 
 export function QuickConnectPanel({ onConnect }: QuickConnectPanelProps) {
   const { t } = useTranslation();
   const [host, setHost] = useState("");
+  // "ssh", or the id of a plugin protocol offered in Quick Connect.
+  const [protocol, setProtocol] = useState("ssh");
   const [port, setPort] = useState("22");
+  const [domain, setDomain] = useState("");
   const [username, setUsername] = useState("root");
-  const [authType, setAuthType] = useState<"password" | "key" | "credential">(
-    "password",
-  );
+  const [authType, setAuthType] = useState("password");
+  const [authFields, setAuthFields] = useState<Record<string, unknown>>({});
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [credentialId, setCredentialId] = useState("");
   const [credentials, setCredentials] = useState<
     { id: string; name: string; username: string }[]
@@ -33,55 +67,123 @@ export function QuickConnectPanel({ onConnect }: QuickConnectPanelProps) {
       .catch(() => {});
   }, []);
 
-  const connect = (type: "terminal" | "files") => {
-    if (!host || !username) return;
-    const hostConfig = createQuickConnectHost({
-      ip: host,
-      port: parseInt(port) || 22,
-      username,
-      authType,
-      password,
-      key: privateKey,
-      credentialId,
-    });
-    onConnect(hostConfig, type);
+  // Every registered SSH auth type that works for a host that is never saved.
+  const { providers } = useSshAuthProviders();
+  const authOptions = providers.filter(
+    (option) => option.available && option.quickConnect,
+  );
+  const authEditor = useSshAuthEditors().find(
+    (editor) => editor.id === authType,
+  );
+  const AuthEditor = INLINE_AUTH_TYPES.has(authType)
+    ? undefined
+    : authEditor?.component;
+  const allActions = useHostActions();
+
+  const pluginProtocols = useHostProtocols().filter(
+    (entry) => entry.quickConnect,
+  );
+  const selected = pluginProtocols.find((entry) => entry.id === protocol);
+  const isDesktop = !!selected;
+  const defaultPort = (id: string) =>
+    String(pluginProtocols.find((entry) => entry.id === id)?.defaultPort ?? 22);
+
+  const switchProtocol = (next: string) => {
+    // Keep a port the user typed; only swap the protocol default.
+    if (port === defaultPort(protocol)) setPort(defaultPort(next));
+    setProtocol(next);
+  };
+
+  // A host that is never saved still follows the user's host defaults.
+  const [defaultPluginSettings, setDefaultPluginSettings] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  useEffect(() => {
+    resolveHostDefaults({ folder: null })
+      .then((values) => setDefaultPluginSettings(pluginSettingsFrom(values)))
+      .catch(() => {});
+  }, []);
+
+  const buildHost = () =>
+    withDefaultPluginSettings(
+      createQuickConnectHost({
+        ip: host.trim(),
+        port: parseInt(port) || parseInt(defaultPort(protocol)),
+        username,
+        authType: isDesktop ? "password" : authType,
+        password,
+        key: privateKey,
+        credentialId,
+        protocol: selected,
+        domain: domain || undefined,
+        authFields: INLINE_AUTH_TYPES.has(authType) ? undefined : authFields,
+      }),
+      defaultPluginSettings,
+    );
+
+  const targets = quickConnectTargets(allActions, buildHost());
+
+  const connect = (action?: HostActionDef) => {
+    if (!host.trim()) return;
+    if (!isDesktop && !username) return;
+    const hostConfig = buildHost();
+    const target = action ?? quickConnectTargets(allActions, hostConfig)[0];
+    if (!target?.tabType) {
+      toast.error(t("newUi.sidebar.quickConnect.noTarget"));
+      return;
+    }
+    onConnect(hostConfig, target.tabType);
+  };
+
+  const onEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") connect();
   };
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-      <div className="flex flex-col gap-3 p-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            {t("newUi.sidebar.quickConnect.hostLabel")}
-          </label>
+      <div className={`flex flex-col ${PANEL.gap} ${PANEL.body}`}>
+        <GroupHeading title={t("newUi.sidebar.quickConnect.where")} />
+        <div className="grid grid-cols-[1fr_5rem] gap-2">
+          <Field label={t("newUi.sidebar.quickConnect.protocolLabel")}>
+            <Select2
+              value={protocol}
+              onChange={(e) => switchProtocol(e.target.value)}
+              className={SELECT_CLASS}
+            >
+              <option value="ssh">
+                {t("newUi.sidebar.quickConnect.sshProtocol")}
+              </option>
+              {pluginProtocols.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {t(entry.titleKey)}
+                </option>
+              ))}
+            </Select2>
+          </Field>
+          <Field label={t("newUi.sidebar.quickConnect.portLabel")}>
+            <Input
+              placeholder={defaultPort(protocol)}
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+              onKeyDown={onEnter}
+              className="h-8 text-xs"
+            />
+          </Field>
+        </div>
+        <Field label={t("newUi.sidebar.quickConnect.hostLabel")}>
           <Input
             placeholder={t("newUi.sidebar.quickConnect.hostPlaceholder")}
             value={host}
             onChange={(e) => setHost(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") connect("terminal");
-            }}
-            className="h-7 text-xs"
+            onKeyDown={onEnter}
+            className="h-8 text-xs"
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            {t("newUi.sidebar.quickConnect.portLabel")}
-          </label>
-          <Input
-            placeholder={t("newUi.sidebar.quickConnect.portPlaceholder")}
-            value={port}
-            onChange={(e) => setPort(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") connect("terminal");
-            }}
-            className="h-7 text-xs"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            {t("newUi.sidebar.quickConnect.usernameLabel")}
-          </label>
+        </Field>
+        <GroupHeading
+          title={t("newUi.sidebar.quickConnect.who")}
+          className="pt-1"
+        />
+        <Field label={t("newUi.sidebar.quickConnect.usernameLabel")}>
           <Input
             placeholder={t("newUi.sidebar.quickConnect.usernamePlaceholder")}
             value={username}
@@ -92,84 +194,65 @@ export function QuickConnectPanel({ onConnect }: QuickConnectPanelProps) {
               if (username === "") setUsername("root");
             }}
             onChange={(e) => setUsername(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") connect("terminal");
-            }}
-            className="h-7 text-xs"
+            onKeyDown={onEnter}
+            className="h-8 text-xs"
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            {t("newUi.sidebar.quickConnect.authLabel")}
-          </label>
-          <div className="flex gap-1">
-            {(["password", "key", "credential"] as const).map((type) => (
-              <button
-                key={type}
-                onClick={() => setAuthType(type)}
-                className={`flex-1 py-1 text-[10px] font-semibold border transition-colors capitalize ${
-                  authType === type
-                    ? "border-accent-brand/40 bg-accent-brand/10 text-accent-brand"
-                    : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {type}
-              </button>
-            ))}
-          </div>
-        </div>
-        {authType === "password" && (
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              {t("newUi.sidebar.quickConnect.passwordLabel")}
-            </label>
-            <div className="relative">
-              <Input
-                type={showPassword ? "text" : "password"}
-                placeholder={t(
-                  "newUi.sidebar.quickConnect.passwordPlaceholder",
-                )}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") connect("terminal");
-                }}
-                className="h-7 text-xs pr-8"
-              />
-              <button
-                onClick={() => setShowPassword((o) => !o)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? (
-                  <EyeOff className="size-3.5" />
-                ) : (
-                  <Eye className="size-3.5" />
-                )}
-              </button>
-            </div>
-          </div>
+        </Field>
+        {!isDesktop && authOptions.length > 0 && (
+          <Field label={t("newUi.sidebar.quickConnect.authLabel")}>
+            <Select2
+              value={authType}
+              onChange={(e) => {
+                setAuthType(e.target.value);
+                setAuthFields({});
+              }}
+              className={SELECT_CLASS}
+            >
+              {authOptions.map((option) => (
+                <option key={option.type} value={option.type}>
+                  {t(option.editorTitleKey ?? option.labelKey)}
+                </option>
+              ))}
+            </Select2>
+          </Field>
         )}
-        {authType === "key" && (
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              {t("newUi.sidebar.quickConnect.privateKeyLabel")}
-            </label>
-            <textarea
+        {(isDesktop || authType === "password") && (
+          <Field label={t("newUi.sidebar.quickConnect.passwordLabel")}>
+            <PasswordInput
+              placeholder={t("newUi.sidebar.quickConnect.passwordPlaceholder")}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={onEnter}
+              className="h-8 pr-8 text-xs"
+            />
+          </Field>
+        )}
+        {selected?.quickConnect?.showDomain && (
+          <Field label={t("newUi.sidebar.quickConnect.domainLabel")}>
+            <Input
+              placeholder={t("newUi.sidebar.quickConnect.domainPlaceholder")}
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              onKeyDown={onEnter}
+              className="h-8 text-xs"
+            />
+          </Field>
+        )}
+        {!isDesktop && authType === "key" && (
+          <Field label={t("newUi.sidebar.quickConnect.privateKeyLabel")}>
+            <Textarea
               placeholder={t(
                 "newUi.sidebar.quickConnect.privateKeyPlaceholder",
               )}
               value={privateKey}
               onChange={(e) => setPrivateKey(e.target.value)}
-              className="w-full h-24 px-2.5 py-2 text-xs bg-background border border-border text-foreground placeholder:text-muted-foreground resize-none outline-none focus:ring-1 focus:ring-ring font-mono"
+              className="h-24 resize-none font-mono text-xs"
             />
-          </div>
+          </Field>
         )}
-        {authType === "credential" && (
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              {t("newUi.sidebar.quickConnect.credentialLabel")}
-            </label>
-            <select
+        {!isDesktop && authType === "credential" && (
+          <Field label={t("newUi.sidebar.quickConnect.credentialLabel")}>
+            <Select2
               value={credentialId}
               onChange={(e) => {
                 const newId = e.target.value;
@@ -177,7 +260,7 @@ export function QuickConnectPanel({ onConnect }: QuickConnectPanelProps) {
                 const cred = credentials.find((c) => c.id === newId);
                 if (cred?.username) setUsername(cred.username);
               }}
-              className="flex h-7 w-full border border-border bg-background px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+              className={SELECT_CLASS}
             >
               <option value="">
                 {t("newUi.sidebar.quickConnect.credentialPlaceholder")}
@@ -187,24 +270,45 @@ export function QuickConnectPanel({ onConnect }: QuickConnectPanelProps) {
                   {c.username ? `${c.name} (${c.username})` : c.name}
                 </option>
               ))}
-            </select>
-          </div>
+            </Select2>
+          </Field>
         )}
-        <div className="flex flex-col gap-1.5 pt-1">
-          <button
-            onClick={() => connect("terminal")}
-            className="flex items-center justify-center gap-1.5 h-7 w-full border border-accent-brand/40 bg-accent-brand/10 text-accent-brand text-xs font-semibold hover:bg-accent-brand/20 transition-colors"
-          >
-            <Terminal className="size-3.5" />
-            {t("newUi.sidebar.quickConnect.connectToTerminal")}
-          </button>
-          <button
-            onClick={() => connect("files")}
-            className="flex items-center justify-center gap-1.5 h-7 w-full border border-accent-brand/40 bg-accent-brand/10 text-accent-brand text-xs font-semibold hover:bg-accent-brand/20 transition-colors"
-          >
-            <FolderSearch className="size-3.5" />
-            {t("newUi.sidebar.quickConnect.connectToFiles")}
-          </button>
+        {!isDesktop && AuthEditor && (
+          <AuthEditor
+            form={{ ...authFields, ip: host, port, username }}
+            setField={(key, value) => {
+              if (key === "ip") setHost(String(value ?? ""));
+              else if (key === "port") setPort(String(value ?? ""));
+              else if (key === "username") setUsername(String(value ?? ""));
+              else setAuthFields((current) => ({ ...current, [key]: value }));
+            }}
+          />
+        )}
+        <div className="flex flex-col gap-1.5 pt-2">
+          {targets.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {t("newUi.sidebar.quickConnect.noTarget")}
+            </p>
+          ) : (
+            targets.map((action, index) => (
+              <button
+                key={action.id}
+                type="button"
+                disabled={!host.trim()}
+                onClick={() => connect(action)}
+                className={`flex h-8 w-full items-center justify-center gap-1.5 border text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 ${
+                  index === 0
+                    ? "border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10"
+                    : "border-border text-foreground hover:bg-muted"
+                }`}
+              >
+                <action.icon className="size-3.5" />
+                {t("newUi.sidebar.quickConnect.connectToAction", {
+                  name: t(action.titleKey),
+                })}
+              </button>
+            ))
+          )}
         </div>
       </div>
     </div>

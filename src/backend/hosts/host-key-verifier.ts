@@ -1,3 +1,4 @@
+import { pluginEvents, TOPICS } from "../plugins/events.js";
 import type { WebSocket } from "ws";
 import { createCurrentHostResolutionRepository } from "../database/repositories/factory.js";
 import { sshLogger } from "../utils/logger.js";
@@ -60,6 +61,34 @@ export class SSHHostKeyVerifier {
           const keyType = this.getKeyType(hostkey);
           const algorithm = "sha256";
 
+          // An unsaved host (Quick Connect) has nowhere to keep the key, so the
+          // user checks it for this session when there is a socket to ask on.
+          if (!hostId && ws) {
+            const accepted = await this.promptUserForNewKey(
+              ws,
+              ip,
+              port,
+              undefined,
+              fingerprint,
+              keyType,
+              algorithm,
+            );
+            sshLogger.info(
+              accepted
+                ? "Quick connect host key accepted for this session"
+                : "Quick connect host key rejected",
+              {
+                operation: "host_key_quick_connect",
+                ip,
+                port,
+                fingerprint,
+                userId,
+              },
+            );
+            verify(accepted);
+            return;
+          }
+
           if (!hostId) {
             sshLogger.info(
               "Host key verification skipped (no hostId - quick connect)",
@@ -83,18 +112,47 @@ export class SSHHostKeyVerifier {
                   hostId,
                 );
 
+          // No row means nothing to compare against and nowhere to save the
+          // key, so it is never accepted silently (#1397): the user decides
+          // when there is a socket to ask on, otherwise it is refused.
           if (!host) {
+            if (!ws) {
+              sshLogger.error(
+                "Host not found in database during key verification, rejecting",
+                {
+                  operation: "host_key_no_host",
+                  hostId,
+                  ip,
+                  port,
+                  userId,
+                },
+              );
+              verify(false);
+              return;
+            }
+            const accepted = await this.promptUserForNewKey(
+              ws,
+              ip,
+              port,
+              undefined,
+              fingerprint,
+              keyType,
+              algorithm,
+            );
             sshLogger.warn(
-              "Host not found in database during key verification",
+              accepted
+                ? "Key for a host missing from the database accepted for this session only"
+                : "Key for a host missing from the database rejected",
               {
                 operation: "host_key_no_host",
                 hostId,
                 ip,
                 port,
+                fingerprint,
                 userId,
               },
             );
-            verify(true);
+            verify(accepted);
             return;
           }
 
@@ -327,6 +385,7 @@ export class SSHHostKeyVerifier {
       algorithm,
       currentChangeCount,
     );
+    pluginEvents.emit(TOPICS.hostKeyUpdated, { hostId });
   }
 
   private static async promptUserForNewKey(

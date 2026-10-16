@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { createServer } from "http";
+import type { AddressInfo } from "net";
 import type { LookupAddress, LookupOptions } from "dns";
 import {
   createDnsLookupHook,
   isBlockedAddress,
+  outboundIdleTimeout,
+  readResponseTextLimited,
+  safeOutboundFetch,
 } from "../../utils/safe-outbound-fetch.js";
 
 describe("isBlockedAddress", () => {
@@ -17,6 +22,7 @@ describe("isBlockedAddress", () => {
     expect(isBlockedAddress("192.168.1.1")).toBe(true);
     expect(isBlockedAddress("127.0.0.1")).toBe(true);
     expect(isBlockedAddress("169.254.1.1")).toBe(true);
+    expect(isBlockedAddress("192.0.0.170")).toBe(true);
     expect(isBlockedAddress("100.64.0.1")).toBe(true);
   });
 
@@ -47,10 +53,42 @@ describe("isBlockedAddress", () => {
   });
 });
 
+describe("readResponseTextLimited", () => {
+  it("reads a response within the configured limit", async () => {
+    const response = new Response("hello");
+    await expect(readResponseTextLimited(response, 5)).resolves.toBe("hello");
+  });
+
+  it("rejects a declared oversized response before buffering it", async () => {
+    const response = new Response("small", {
+      headers: { "content-length": "100" },
+    });
+    await expect(readResponseTextLimited(response, 10)).rejects.toThrow(
+      "Response exceeds 10 bytes",
+    );
+  });
+
+  it("stops a chunked response once its actual body exceeds the limit", async () => {
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("12345"));
+          controller.enqueue(new TextEncoder().encode("6"));
+          controller.close();
+        },
+      }),
+    );
+    await expect(readResponseTextLimited(response, 5)).rejects.toThrow(
+      "Response exceeds 5 bytes",
+    );
+  });
+});
+
 function runHook(
   addresses: LookupAddress[] | string | undefined,
   error: NodeJS.ErrnoException | null = null,
   lookupOptions: LookupOptions = { all: true },
+  allowPrivate = false,
 ) {
   const fakeLookup = vi.fn(
     (
@@ -66,7 +104,7 @@ function runHook(
     },
   );
 
-  const hook = createDnsLookupHook(fakeLookup);
+  const hook = createDnsLookupHook(fakeLookup, allowPrivate);
   const callback = vi.fn();
 
   hook("example.invalid", lookupOptions, callback);
@@ -92,6 +130,21 @@ const publicAddresses: LookupAddress[] = [
 ];
 
 describe("createDnsLookupHook", () => {
+  it("permits private results only for an explicitly authorized host", () => {
+    const { callback } = runHook(
+      [{ address: "192.168.1.20", family: 4 }],
+      null,
+      { all: true },
+      true,
+    );
+
+    expect(callback).toHaveBeenCalledWith(
+      null,
+      [{ address: "192.168.1.20", family: 4 }],
+      0,
+    );
+  });
+
   it("allows a public IPv4 address through", () => {
     const { callback } = runHook([
       {
@@ -208,4 +261,71 @@ describe("createDnsLookupHook", () => {
       expect.any(Function),
     );
   });
+});
+
+describe("safeOutboundFetch", () => {
+  it("returns a large body the caller reads after the call", async () => {
+    const body = "x".repeat(1_000_000);
+    const server = createServer((_req, res) => res.end(body));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = server.address() as AddressInfo;
+    try {
+      const response = await safeOutboundFetch(
+        `http://127.0.0.1:${port}/`,
+        {},
+        ["127.0.0.1"],
+      );
+      expect((await response.text()).length).toBe(body.length);
+    } finally {
+      server.close();
+    }
+  }, 10_000);
+});
+
+describe("outboundIdleTimeout", () => {
+  it("keeps undici's 5 minute default as the floor", () => {
+    expect(outboundIdleTimeout()).toBe(300_000);
+    expect(outboundIdleTimeout(30_000)).toBe(300_000);
+  });
+
+  it("raises the idle timeout for a longer request timeout", () => {
+    expect(outboundIdleTimeout(600_000)).toBe(600_000);
+  });
+});
+
+describe("redirect handling", () => {
+  it.each([undefined, "error", "follow", "manual"] as const)(
+    "never follows redirects with mode %s",
+    async (redirect) => {
+      const paths: string[] = [];
+      const server = createServer((req, res) => {
+        paths.push(req.url!);
+        res.writeHead(302, { Location: "/private-target" });
+        res.end();
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = server.address() as AddressInfo;
+      try {
+        const response = safeOutboundFetch(
+          `http://127.0.0.1:${port}/`,
+          { redirect },
+          ["127.0.0.1"],
+        );
+        if (redirect === "manual") {
+          const result = await response;
+          expect(result.status).toBe(302);
+          await result.body?.cancel();
+        } else {
+          await expect(response).rejects.toThrow();
+        }
+        expect(paths).toEqual(["/"]);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  );
 });

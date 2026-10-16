@@ -14,7 +14,7 @@ export class DataDirMisconfiguredError extends Error {
 
 /**
  * Directories Termix has shipped or documented as a data location. A deployment
- * that loses DATA_DIR — an unloaded .env file, an unmounted volume — falls back
+ * that loses DATA_DIR, an unloaded .env file, an unmounted volume, falls back
  * to the default and finds an empty directory, which is indistinguishable from a
  * first run. Checking these tells the two apart.
  */
@@ -55,9 +55,7 @@ export function findDatabaseOutsideDataDir(
   return null;
 }
 
-export function isEmptyDataDirAllowed(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+function isEmptyDataDirAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
   return TRUE_VALUES.has(
     env[ALLOW_EMPTY_DATA_DIR_ENV]?.trim().toLowerCase() ?? "",
   );

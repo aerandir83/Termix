@@ -44,11 +44,6 @@ describe("HostResolutionRepository", () => {
         (1, 'user-1', 'web', '10.0.0.1', 22, 'root', 'password', 7, '[{"autoStart":true}]'),
         (2, 'user-1', 'db', '10.0.0.2', 22, 'admin', 'none', NULL, NULL),
         (3, 'user-2', 'other', '10.0.0.3', 22, 'root', 'none', NULL, '[{"autoStart":false}]');
-      INSERT INTO ssh_folders (user_id, name, credential_id)
-      VALUES
-        ('user-1', 'switches', 7),
-        ('user-1', 'switches / floor1', NULL),
-        ('user-1', 'no-cred', NULL);
       INSERT INTO host_access (
         host_id, user_id, granted_by, permission_level
       )
@@ -192,10 +187,6 @@ describe("HostResolutionRepository", () => {
     await expect(repository.findHostUpdateState(1)).resolves.toEqual({
       userId: "user-1",
       credentialId: 7,
-      rdpCredentialId: null,
-      vncCredentialId: null,
-      telnetCredentialId: null,
-      vaultProfileId: null,
       authType: "password",
       parentHostId: null,
       folder: null,
@@ -230,29 +221,6 @@ describe("HostResolutionRepository", () => {
     const rows = await repository.listAllHosts();
 
     expect(rows.map((row) => row.id)).toEqual([1, 2, 3]);
-    expect(DataCrypto.decryptRecord).toHaveBeenCalledWith(
-      "ssh_data",
-      expect.objectContaining({ id: 1 }),
-      "user-1",
-      Buffer.from("user-1-key"),
-    );
-    expect(DataCrypto.decryptRecord).toHaveBeenCalledWith(
-      "ssh_data",
-      expect.objectContaining({ id: 3 }),
-      "user-2",
-      Buffer.from("user-2-key"),
-    );
-  });
-
-  it("lists tunnel-enabled hosts with tunnel data through each owner decryption boundary", async () => {
-    vi.mocked(DataCrypto.getUserDataKey).mockImplementation((userId) =>
-      Buffer.from(`${userId}-key`),
-    );
-    const repository = await createRepository();
-
-    const rows = await repository.listHostsWithTunnelConnections();
-
-    expect(rows.map((row) => row.id)).toEqual([1, 3]);
     expect(DataCrypto.decryptRecord).toHaveBeenCalledWith(
       "ssh_data",
       expect.objectContaining({ id: 1 }),
@@ -354,26 +322,6 @@ describe("HostResolutionRepository", () => {
     ).resolves.toEqual([]);
     await expect(
       repository.findCredentialByIdForUser(7, "user-1"),
-    ).resolves.toBeNull();
-  });
-
-  it("resolves a folder's assigned credential, walking up to parent folders", async () => {
-    const repository = await createRepository();
-
-    await expect(
-      repository.findFolderCredentialId("user-1", "switches"),
-    ).resolves.toBe(7);
-    await expect(
-      repository.findFolderCredentialId("user-1", "switches / floor1"),
-    ).resolves.toBe(7);
-    await expect(
-      repository.findFolderCredentialId("user-1", "no-cred"),
-    ).resolves.toBeNull();
-    await expect(
-      repository.findFolderCredentialId("user-1", "unknown"),
-    ).resolves.toBeNull();
-    await expect(
-      repository.findFolderCredentialId("user-1", ""),
     ).resolves.toBeNull();
   });
 

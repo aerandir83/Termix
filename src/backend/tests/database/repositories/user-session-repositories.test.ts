@@ -20,6 +20,7 @@ describe("UserRepository and SessionRepository", () => {
   async function createRepositories(options: {
     onUserWrite?: () => void | Promise<void>;
     onSessionWrite?: () => void | Promise<void>;
+    onSessionActivity?: () => void | Promise<void>;
   }): Promise<{
     users: UserRepository;
     sessions: SessionRepository;
@@ -28,6 +29,7 @@ describe("UserRepository and SessionRepository", () => {
     options: {
       onUserWrite?: () => void | Promise<void>;
       onSessionWrite?: () => void | Promise<void>;
+      onSessionActivity?: () => void | Promise<void>;
     } = {},
   ): Promise<{
     users: UserRepository;
@@ -38,7 +40,11 @@ describe("UserRepository and SessionRepository", () => {
 
     return {
       users: new UserRepository(context, options.onUserWrite),
-      sessions: new SessionRepository(context, options.onSessionWrite),
+      sessions: new SessionRepository(
+        context,
+        options.onSessionWrite,
+        options.onSessionActivity,
+      ),
     };
   }
 
@@ -50,11 +56,9 @@ describe("UserRepository and SessionRepository", () => {
       username: "admin",
       passwordHash: "hash",
       isAdmin: true,
-      isOidc: false,
     });
 
     expect(await repo.users.countAdmins()).toBe(1);
-    expect(await repo.users.countTotpEnabled()).toBe(0);
     expect((await repo.users.listAll()).map((user) => user.id)).toEqual([
       "user-1",
     ]);
@@ -64,15 +68,15 @@ describe("UserRepository and SessionRepository", () => {
     ).toEqual(["user-1"]);
     expect(await repo.users.listByIds([])).toEqual([]);
 
-    const updated = await repo.users.update("user-1", {
-      oidcIdentifier: "oidc:admin",
-      totpEnabled: true,
-    });
-    expect(updated?.oidcIdentifier).toBe("oidc:admin");
-    expect(await repo.users.countTotpEnabled()).toBe(1);
-    expect((await repo.users.findByOidcIdentifier("oidc:admin"))?.id).toBe(
-      "user-1",
-    );
+    const updated = await repo.users.update("user-1", { isAdmin: false });
+    expect(updated).toMatchObject({ isAdmin: false, isExternal: false });
+
+    await adapter!.exec(`
+      INSERT INTO user_external_identities (user_id, provider_id, subject)
+      VALUES ('user-1', '3', 'sub-1');
+    `);
+    expect((await repo.users.findById("user-1"))?.isExternal).toBe(true);
+    expect((await repo.users.listAll())[0].isExternal).toBe(true);
 
     expect(await repo.users.delete("user-1")).toBe(true);
     expect(await repo.users.findById("user-1")).toBeNull();
@@ -85,13 +89,11 @@ describe("UserRepository and SessionRepository", () => {
       id: "user-1",
       username: "first",
       passwordHash: "hash",
-      isOidc: false,
     });
     const second = await repo.users.createFirstLocalUser({
       id: "user-2",
       username: "second",
       passwordHash: "hash",
-      isOidc: false,
     });
 
     expect(first.isFirstUser).toBe(true);
@@ -109,27 +111,18 @@ describe("UserRepository and SessionRepository", () => {
       username: "first",
       passwordHash: "",
       isAdmin: false,
-      isOidc: true,
-      oidcIdentifier: "ldap:provider:first",
-      ssoProviderId: 1,
     });
     const providerAdmin = await repo.users.createFirstSsoUser({
       id: "user-2",
       username: "provider-admin",
       passwordHash: "",
       isAdmin: true,
-      isOidc: true,
-      oidcIdentifier: "ldap:provider:admin",
-      ssoProviderId: 1,
     });
     const regular = await repo.users.createFirstSsoUser({
       id: "user-3",
       username: "regular",
       passwordHash: "",
       isAdmin: false,
-      isOidc: true,
-      oidcIdentifier: "ldap:provider:regular",
-      ssoProviderId: 1,
     });
 
     expect(first.isFirstUser).toBe(true);
@@ -154,7 +147,6 @@ describe("UserRepository and SessionRepository", () => {
       username: "admin",
       passwordHash: "hash",
       isAdmin: true,
-      isOidc: false,
     });
     await repo.users.update("user-1", { isAdmin: false });
     await repo.users.delete("user-1");
@@ -169,7 +161,6 @@ describe("UserRepository and SessionRepository", () => {
       username: "user",
       passwordHash: "hash",
       isAdmin: false,
-      isOidc: false,
     });
 
     await repo.sessions.create({
@@ -205,7 +196,6 @@ describe("UserRepository and SessionRepository", () => {
       username: "user",
       passwordHash: "hash",
       isAdmin: false,
-      isOidc: false,
     });
     await repo.sessions.create({
       id: "session-1",
@@ -231,6 +221,45 @@ describe("UserRepository and SessionRepository", () => {
     );
   });
 
+  it("separates activity persistence from security-critical session writes", async () => {
+    let writes = 0,
+      activity = 0;
+    const repo = await createRepositories({
+      onSessionWrite: () => {
+        writes++;
+      },
+      onSessionActivity: () => {
+        activity++;
+      },
+    });
+    await repo.users.create({
+      id: "user-1",
+      username: "user",
+      passwordHash: "hash",
+      isAdmin: false,
+    });
+    await repo.sessions.create({
+      id: "session-1",
+      userId: "user-1",
+      jwtToken: "token",
+      deviceType: "desktop",
+      deviceInfo: "Firefox",
+      createdAt: "2026-06-26T00:00:00.000Z",
+      expiresAt: "2026-06-27T00:00:00.000Z",
+      lastActiveAt: "2026-06-26T00:00:00.000Z",
+    });
+    expect(writes).toBe(1);
+    await repo.sessions.touch("session-1", "2026-06-26T00:01:00.000Z");
+    expect(activity).toBe(1);
+    expect(writes).toBe(1);
+    await repo.sessions.touch("session-1", "2026-06-26T00:01:10.000Z");
+    expect(activity).toBe(1);
+    await repo.sessions.updateToken("session-1", "renewed");
+    expect(writes).toBe(2);
+    await repo.sessions.revoke("session-1");
+    expect(writes).toBe(3);
+  });
+
   it("revokes all user sessions except an optional current session", async () => {
     const repo = await createRepositories();
     await repo.users.create({
@@ -238,7 +267,6 @@ describe("UserRepository and SessionRepository", () => {
       username: "user",
       passwordHash: "hash",
       isAdmin: false,
-      isOidc: false,
     });
 
     for (const id of ["keep", "drop-1", "drop-2"]) {
@@ -265,7 +293,6 @@ describe("UserRepository and SessionRepository", () => {
       username: "user",
       passwordHash: "hash",
       isAdmin: false,
-      isOidc: false,
     });
 
     await repo.sessions.create({

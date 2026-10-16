@@ -1,64 +1,54 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SSHHost } from "@/types/index";
 
-const isElectron = vi.hoisted(() => vi.fn());
+const getLinkedSession = vi.hoisted(() => vi.fn());
 const remoteApi = vi.hoisted(() => ({ get: vi.fn() }));
 
-vi.mock("@/lib/electron", () => ({ isElectron }));
-vi.mock("@/main-axios", () => ({ getRemoteStatsApi: () => remoteApi }));
+vi.mock("@/lib/linked-server", () => ({ getLinkedSession }));
+vi.mock("@/main-axios", () => ({ getRemoteCoreApi: () => remoteApi }));
 
 import {
   getConnectedRemoteApi,
-  markRemoteSharedHosts,
+  hydrateLocalSharedHostAuth,
   resolveRemoteHostId,
 } from "@/lib/remote-server-api";
 
-describe("remote server API", () => {
-  const invoke = vi.fn();
+const LINKED = { serverUrl: "https://termix.example", token: "t" };
 
+describe("remote server API", () => {
   beforeEach(() => {
-    isElectron.mockReset();
+    getLinkedSession.mockReset();
     remoteApi.get.mockReset();
-    invoke.mockReset();
-    Object.defineProperty(window, "electronAPI", {
-      configurable: true,
-      value: { invoke },
-    });
   });
 
-  it("is available only for a configured Electron sync server", async () => {
-    isElectron.mockReturnValue(false);
+  it("is available only while this desktop is linked", async () => {
+    getLinkedSession.mockResolvedValueOnce(null);
     await expect(getConnectedRemoteApi()).resolves.toBeNull();
 
-    isElectron.mockReturnValue(true);
-    invoke.mockResolvedValueOnce({ serverUrl: "https://termix.example" });
+    getLinkedSession.mockResolvedValueOnce(LINKED);
     await expect(getConnectedRemoteApi()).resolves.toBe(remoteApi);
   });
 
-  it("maps a local host to the remote numeric id by syncId", async () => {
-    isElectron.mockReturnValue(true);
-    invoke.mockResolvedValue({ serverUrl: "https://termix.example" });
-    remoteApi.get.mockResolvedValue({
-      data: { rows: [{ id: 41, syncId: "host-a" }] },
-    });
+  it("asks the linked server for its id of a host by sync id", async () => {
+    getLinkedSession.mockResolvedValue(LINKED);
+    remoteApi.get.mockResolvedValueOnce({ data: { id: 41, name: "web" } });
 
-    await expect(resolveRemoteHostId("host-a")).resolves.toBe(41);
-    await expect(resolveRemoteHostId("missing")).resolves.toBeNull();
-    expect(remoteApi.get).toHaveBeenCalledWith("/sync/hosts");
+    await expect(resolveRemoteHostId("host a")).resolves.toBe(41);
+    expect(remoteApi.get).toHaveBeenCalledWith("/sync/v2/hosts/host%20a");
   });
 
-  it("keeps only shared remote hosts and gives them collision-free ids", () => {
-    const rows = markRemoteSharedHosts([
-      { id: 4, isShared: false },
-      { id: 9, isShared: true, syncId: "shared-host" },
-    ] as SSHHost[]);
+  it("answers null for an unknown host, no sync id, or no link", async () => {
+    getLinkedSession.mockResolvedValue(LINKED);
+    remoteApi.get.mockRejectedValueOnce(new Error("404"));
+    await expect(resolveRemoteHostId("missing")).resolves.toBeNull();
+    await expect(resolveRemoteHostId(null)).resolves.toBeNull();
 
-    expect(rows).toEqual([
-      expect.objectContaining({
-        id: -9,
-        syncId: "shared-host",
-        connectionOrigin: "remote",
-      }),
-    ]);
+    getLinkedSession.mockResolvedValue(null);
+    await expect(resolveRemoteHostId("host-a")).resolves.toBeNull();
+  });
+
+  it("leaves hosts as they are, since shared copies carry their own auth", async () => {
+    const host = { id: 9, isShared: true, username: "root" };
+    await expect(hydrateLocalSharedHostAuth(host)).resolves.toBe(host);
+    expect(remoteApi.get).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,7 @@ import { ReorderIndicator } from "@/sidebar/ReorderIndicator";
 import type { Credential } from "@/types/ui-types";
 import type {
   CredentialDensity,
+  CredentialRowFields,
   CredentialTrayTrigger,
 } from "@/types/credential-sidebar-preferences";
 import { CredentialItem } from "./CredentialItem/CredentialItem";
@@ -33,14 +34,15 @@ export function CredentialSidebarTree({
   onEditCredential,
   onCloneCredential,
   onDeleteCredential,
+  onShareCredential,
   usedByCounts,
-  termixIdLinkedIds,
   query = "",
   loading = false,
   arrangeLocked = true,
   density = "comfortable",
   trayTrigger = "hover",
   showTags = true,
+  rowFields,
   editingFolderName,
   editingFolderValue,
   onEditingFolderNameChange,
@@ -54,8 +56,8 @@ export function CredentialSidebarTree({
   onEditCredential: (cred: Credential) => void;
   onCloneCredential: (cred: Credential) => void;
   onDeleteCredential: (cred: Credential) => void;
+  onShareCredential?: (cred: Credential) => void;
   usedByCounts?: Map<string, number>;
-  termixIdLinkedIds?: Set<number>;
   query?: string;
   loading?: boolean;
   /** When true, drag-to-rearrange is off entirely. Toggled from the panel header. */
@@ -63,6 +65,7 @@ export function CredentialSidebarTree({
   density?: CredentialDensity;
   trayTrigger?: CredentialTrayTrigger;
   showTags?: boolean;
+  rowFields?: CredentialRowFields;
   editingFolderName: string | null;
   editingFolderValue: string;
   onEditingFolderNameChange: (name: string | null) => void;
@@ -165,6 +168,11 @@ export function CredentialSidebarTree({
         isOpen,
         showTags,
         tagCount: row.item.tags?.length ?? 0,
+        hasDetailRow:
+          !rowFields ||
+          (rowFields.showUsername && !!row.item.username) ||
+          (rowFields.showUsageCount &&
+            (usedByCounts?.get(row.item.id) ?? 0) > 0),
       });
     },
     [
@@ -176,6 +184,8 @@ export function CredentialSidebarTree({
       actionsOnly,
       density,
       showTags,
+      rowFields,
+      usedByCounts,
     ],
   );
 
@@ -223,6 +233,7 @@ export function CredentialSidebarTree({
     density,
     trayTrigger,
     showTags,
+    rowFields,
   ]);
 
   function toggleFolder(name: string) {
@@ -396,7 +407,6 @@ export function CredentialSidebarTree({
                     <CredentialItem
                       cred={item}
                       usedByCount={usedByCounts?.get(item.id) ?? 0}
-                      termixIdLinked={termixIdLinkedIds?.has(Number(item.id))}
                       query={query}
                       stripeIndex={vItem.index}
                       isMenuOpen={openMenuCredentialId === item.id}
@@ -423,6 +433,7 @@ export function CredentialSidebarTree({
                       density={density}
                       trayTrigger={trayTrigger}
                       showTags={showTags}
+                      rowFields={rowFields}
                       arrangeMode={arrangeMode}
                       isDragging={draggedReorderKey === `cred:${item.id}`}
                       onReorderDrop={(position) =>
@@ -438,6 +449,7 @@ export function CredentialSidebarTree({
                       onEdit={() => onEditCredential(item)}
                       onClone={() => onCloneCredential(item)}
                       onDelete={() => onDeleteCredential(item)}
+                      onShare={() => onShareCredential?.(item)}
                     />
                   )}
                 </div>

@@ -1,4 +1,15 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { auditLogs } from "../db/schema.js";
 import type { DatabaseContext } from "./database-context.js";
 import { sqlTimestampDaysAgo } from "./sql-timestamp.js";
@@ -26,6 +37,17 @@ export const AUDIT_RETENTION_DAYS_ENV = "AUDIT_LOG_RETENTION_DAYS";
 export const AUDIT_MAX_ENTRIES_ENV = "AUDIT_LOG_MAX_ENTRIES";
 
 const DEFAULT_MAX_ENTRIES = 10000;
+
+// 2.9.1 logged these on every background plugin query and pushed real
+// entries out of the capped log. They are now audited once per activation.
+export const ROUTINE_PLUGIN_AUDIT_ACTIONS = [
+  "plugin_db_client",
+  "plugin_db_refs",
+  "plugin_kv_get",
+  "plugin_kv_list",
+  "plugin_files_data_dir",
+  "plugin_settings_read_core",
+];
 const PRUNE_TARGET_RATIO = 0.9;
 
 function positiveIntEnv(key: string, env: NodeJS.ProcessEnv): number | null {
@@ -52,7 +74,7 @@ export class AuditLogRepository {
   /**
    * Cached row count backing the cap check. Static because the factory builds
    * a repository per call, so a per-instance count would never survive to be
-   * reused. Null means "unknown, re-read" — which is also how any path that
+   * reused. Null means "unknown, re-read", which is also how any path that
    * deletes rows invalidates it.
    */
   private static cachedCount: number | null = null;
@@ -166,6 +188,24 @@ export class AuditLogRepository {
     return rowsAffected(result);
   }
 
+  async deleteRoutinePluginNoise(): Promise<number> {
+    AuditLogRepository.cachedCount = null;
+    const result = await this.context.drizzle
+      .delete(auditLogs)
+      .where(
+        and(
+          isNull(auditLogs.userId),
+          inArray(auditLogs.action, ROUTINE_PLUGIN_AUDIT_ACTIONS),
+        ),
+      );
+
+    if (rowsAffected(result) > 0) {
+      await this.afterWrite();
+    }
+
+    return rowsAffected(result);
+  }
+
   private buildWhere(filters: AuditLogFilters) {
     const conditions = [];
 
@@ -193,13 +233,13 @@ export class AuditLogRepository {
    *
    * Both passes used to run inline on every insert: a retention DELETE plus a
    * COUNT over the whole table, thousands of times an hour on a busy install,
-   * almost always to find nothing to do — and audit writes sit in the request
+   * almost always to find nothing to do, and audit writes sit in the request
    * path of the actions they record.
    *
    * They are split by what they cost and what they guarantee. Retention is
    * time-based, so nothing is lost by checking it on an interval. The row cap
    * is a disk-space guard that has to react to inserts, so it is still checked
-   * on the write that crosses it — but against a cached count, so the common
+   * on the write that crosses it, but against a cached count, so the common
    * case is an integer compare rather than a COUNT.
    */
   private async pruneIfDue(): Promise<void> {

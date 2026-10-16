@@ -3,14 +3,35 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@/types": path.resolve(__dirname, "./src/types"),
-      "@": path.resolve(__dirname, "./src/ui"),
-    },
+    alias: [
+      {
+        find: "@termix-ssh/plugin-sdk/frontend",
+        replacement: path.resolve(
+          __dirname,
+          "./packages/plugin-sdk/src/frontend.ts",
+        ),
+      },
+      {
+        find: "@termix-ssh/plugin-sdk/ui",
+        replacement: path.resolve(__dirname, "./src/ui/plugin-host/sdk-ui.ts"),
+      },
+      {
+        find: "@termix-ssh/plugin-host/testing",
+        replacement: path.resolve(
+          __dirname,
+          "./src/ui/plugin-host/testing-host.tsx",
+        ),
+      },
+      { find: "@/types", replacement: path.resolve(__dirname, "./src/types") },
+      { find: "@", replacement: path.resolve(__dirname, "./src/ui") },
+    ],
   },
   test: {
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // Forks workers on Windows abort now and then (0xC0000409) in a random
+    // file and Vitest reports "Worker exited unexpectedly". Threads don't.
+    pool: "threads",
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
@@ -48,6 +69,9 @@ export default defineConfig({
           name: "frontend",
           environment: "jsdom",
           include: ["src/ui/**/*.test.{ts,tsx}"],
+          // The CLI bundle test builds under node_modules; inline it so its
+          // SDK imports hit the aliases instead of a second copy of the SDK.
+          server: { deps: { inline: [/cli-bundle-test/] } },
         },
       },
       {

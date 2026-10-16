@@ -1,118 +1,4 @@
-import { AxiosError } from "axios";
-import type { TermixAlert } from "@/types";
-import {
-  authApi,
-  handleApiError,
-  markUserAuthenticated,
-  type AuthResponse,
-} from "@/main-axios";
-
-// ALERTS
-// ============================================================================
-
-export async function setupTOTP(): Promise<{
-  secret: string;
-  qr_code: string;
-}> {
-  try {
-    const response = await authApi.post("/users/totp/setup");
-    return response.data;
-  } catch (error) {
-    handleApiError(error as AxiosError, "setup TOTP");
-    throw error;
-  }
-}
-
-export async function enableTOTP(
-  totp_code: string,
-): Promise<{ message: string; backup_codes: string[] }> {
-  try {
-    const response = await authApi.post("/users/totp/enable", { totp_code });
-    return response.data;
-  } catch (error) {
-    handleApiError(error as AxiosError, "enable TOTP");
-    throw error;
-  }
-}
-
-export async function disableTOTP(
-  password?: string,
-  totp_code?: string,
-): Promise<{ message: string }> {
-  try {
-    const response = await authApi.post("/users/totp/disable", {
-      password,
-      totp_code,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error as AxiosError, "disable TOTP");
-    throw error;
-  }
-}
-
-export async function verifyTOTPLogin(
-  temp_token: string,
-  totp_code: string,
-  rememberMe: boolean = false,
-): Promise<AuthResponse> {
-  try {
-    const response = await authApi.post("/users/totp/verify-login", {
-      temp_token,
-      totp_code,
-      rememberMe,
-    });
-
-    if (response.data.success) {
-      markUserAuthenticated();
-    }
-
-    return response.data;
-  } catch (error) {
-    handleApiError(error as AxiosError, "verify TOTP login");
-    throw error;
-  }
-}
-
-export async function generateBackupCodes(
-  password?: string,
-  totp_code?: string,
-): Promise<{ backup_codes: string[] }> {
-  try {
-    const response = await authApi.post("/users/totp/backup-codes", {
-      password,
-      totp_code,
-    });
-    return response.data;
-  } catch (error) {
-    handleApiError(error as AxiosError, "generate backup codes");
-    throw error;
-  }
-}
-
-export async function getUserAlerts(): Promise<{
-  alerts: TermixAlert[];
-}> {
-  try {
-    const response = await authApi.get(`/alerts`);
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "fetch user alerts");
-    throw error;
-  }
-}
-
-export async function dismissAlert(
-  alertId: string,
-): Promise<Record<string, unknown>> {
-  try {
-    const response = await authApi.post("/alerts/dismiss", { alertId });
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "dismiss alert");
-    throw error;
-  }
-}
+import { authApi, handleApiError } from "@/main-axios";
 
 // ============================================================================
 // UPDATES & RELEASES
@@ -155,7 +41,8 @@ export async function getReleasesRSS(
 }
 
 export interface VersionInfo {
-  status?: "up_to_date" | "requires_update" | "beta";
+  status?: "up_to_date" | "requires_update" | "beta" | "unknown";
+  channel?: "stable" | "beta";
   /** Same value as remoteVersion; the endpoint sends both. */
   version?: string;
   localVersion?: string;
@@ -193,6 +80,46 @@ export async function getVersionInfo(checkRemote = true): Promise<VersionInfo> {
   } catch (error) {
     handleApiError(error, "fetch version info");
   }
+}
+
+export type UpdateChannel = "stable" | "beta";
+
+export interface UpdateChannelState {
+  channel: UpdateChannel;
+  /** The admin's choice; a beta build reports beta whatever it is. */
+  stored: UpdateChannel;
+  runningBeta: boolean;
+}
+
+export async function getUpdateChannel(): Promise<UpdateChannelState> {
+  const response = await authApi.get("/version/channel");
+  return response.data;
+}
+
+export async function setUpdateChannel(
+  channel: UpdateChannel,
+): Promise<UpdateChannelState> {
+  const response = await authApi.put("/version/channel", { channel });
+  return response.data;
+}
+
+export interface ReleaseInfo {
+  version: string;
+  tagName: string;
+  name: string;
+  url: string;
+  publishedAt: string;
+  prerelease: boolean;
+  notes: string;
+}
+
+export async function getChannelReleases(): Promise<{
+  localVersion: string | null;
+  stable: ReleaseInfo | null;
+  beta: ReleaseInfo | null;
+}> {
+  const response = await authApi.get("/version/releases");
+  return response.data;
 }
 
 // ============================================================================

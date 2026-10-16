@@ -1,17 +1,20 @@
 # Stage 1: Install dependencies
-FROM node:24-slim AS deps
+# The builders only produce JS, so they run on the build machine's own arch
+# once instead of under QEMU per target. Rolldown hangs under arm64 emulation.
+FROM --platform=$BUILDPLATFORM node:24-slim AS deps
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/package.json
 COPY .npmrc ./
 COPY vendor ./vendor
 
-COPY scripts/patch-guacamole-lite.cjs ./scripts/
+COPY scripts/patch-ssh2-agent.cjs ./scripts/
 
 RUN npm ci --ignore-scripts && \
-    node scripts/patch-guacamole-lite.cjs && \
+    node scripts/patch-ssh2-agent.cjs && \
     npm cache clean --force
 
 # Stage 2: Build frontend
@@ -23,7 +26,7 @@ COPY . .
 RUN find public/fonts -name "*.ttf" ! -name "*Regular.ttf" ! -name "*Bold.ttf" ! -name "*Italic.ttf" -delete
 
 RUN npm cache clean --force && \
-    NODE_OPTIONS="--max-old-space-size=3072" npm run build
+    TERMIX_RUNTIME_BASE_PATH=true NODE_OPTIONS="--max-old-space-size=3072" npm run build
 
 # Stage 3: Build backend
 FROM deps AS backend-builder
@@ -31,27 +34,28 @@ WORKDIR /app
 
 COPY . .
 
-RUN rm -rf node_modules/better-sqlite3/prebuilds && \
-    npm run build-release --prefix node_modules/better-sqlite3 && \
-    test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node
-
-RUN npm run build:backend
+# Bundled plugin downloads show in the plugin store, so keep them between builds.
+RUN --mount=type=cache,target=/app/node_modules/.cache/termix-bundled-plugins \
+    npm run build:backend
 
 # Stage 4: Download OPKSSH binary for the target platform so the image works offline
 FROM node:24-slim AS opkssh-downloader
 ARG TARGETARCH
 ARG OPKSSH_VERSION=v0.16.0
+ARG OPKSSH_SHA256_AMD64=c018c3e7baf98612b923e742dd87be38650bf61e3b755fb2bc90de177568b1bf
+ARG OPKSSH_SHA256_ARM64=9dd10c2b6ce99cde18e52c054877ca014134b291fd82afe71741c68db4f83d44
 WORKDIR /opkssh
 
 RUN apt-get update && apt-get install -y curl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 RUN case "$TARGETARCH" in \
-      amd64) OPKSSH_ARCH=amd64 ;; \
-      arm64) OPKSSH_ARCH=arm64 ;; \
+      amd64) OPKSSH_ARCH=amd64; OPKSSH_SHA256="$OPKSSH_SHA256_AMD64" ;; \
+      arm64) OPKSSH_ARCH=arm64; OPKSSH_SHA256="$OPKSSH_SHA256_ARM64" ;; \
       *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
     esac && \
     curl -fSL -o "opkssh-linux-${OPKSSH_ARCH}" \
       "https://github.com/openpubkey/opkssh/releases/download/${OPKSSH_VERSION}/opkssh-linux-${OPKSSH_ARCH}" && \
+    echo "$OPKSSH_SHA256  opkssh-linux-${OPKSSH_ARCH}" | sha256sum -c - && \
     chmod 755 "opkssh-linux-${OPKSSH_ARCH}" && \
     echo -n "$OPKSSH_VERSION" > version.txt
 
@@ -62,13 +66,16 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+# The plugin SDK is a workspace package core imports at runtime, so npm ci
+# has to see it to link it and install its dependencies.
+COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/package.json
 COPY .npmrc ./
 COPY vendor ./vendor
 
-COPY scripts/patch-guacamole-lite.cjs ./scripts/
+COPY scripts/patch-ssh2-agent.cjs ./scripts/
 
 RUN npm ci --omit=dev --ignore-scripts && \
-    node scripts/patch-guacamole-lite.cjs && \
+    node scripts/patch-ssh2-agent.cjs && \
     rm -rf node_modules/better-sqlite3/prebuilds && \
     npm run build-release --prefix node_modules/better-sqlite3 && \
     test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node && \
@@ -79,17 +86,26 @@ RUN npm ci --omit=dev --ignore-scripts && \
 FROM node:24-slim
 WORKDIR /app
 
-ENV DATA_DIR=/app/data \
-    PORT=8080 \
-    NODE_ENV=production \
-    POSTHOG_API_KEY=phc_xM8UznirsFxUkGE68gH4jzeqevf4kh76wGw7Ci7hH2dd
+# The release the opkssh-downloader stage baked in, so the plugin trusts that
+# binary when the build picks a version other than its pinned one.
+ARG OPKSSH_VERSION=v0.16.0
+ARG OPKSSH_SHA256_AMD64=c018c3e7baf98612b923e742dd87be38650bf61e3b755fb2bc90de177568b1bf
+ARG OPKSSH_SHA256_ARM64=9dd10c2b6ce99cde18e52c054877ca014134b291fd82afe71741c68db4f83d44
 
-RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget certbot python3-certbot-dns-cloudflare && \
+ENV DATA_DIR=/app/data \
+    OPKSSH_BUNDLED_DIR=/app/opkssh-bundled \
+    OPKSSH_VERSION=$OPKSSH_VERSION \
+    OPKSSH_SHA256_AMD64=$OPKSSH_SHA256_AMD64 \
+    OPKSSH_SHA256_ARM64=$OPKSSH_SHA256_ARM64 \
+    PORT=8080 \
+    NODE_ENV=production
+
+RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx && \
+    mkdir -p /app/data /app/uploads /app/nginx /tmp/nginx && \
     chown -R node:node /app /tmp/nginx && \
-    chmod 755 /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx
+    chmod 755 /app/data /app/uploads /app/nginx /tmp/nginx
 
 COPY docker/nginx.conf /app/nginx/nginx.conf.template
 COPY docker/nginx-https.conf /app/nginx/nginx-https.conf.template
@@ -98,6 +114,14 @@ COPY --chown=node:node --from=frontend-builder /app/dist /app/html
 
 COPY --chown=node:node --from=production-deps /app/node_modules /app/node_modules
 COPY --chown=node:node --from=backend-builder /app/dist/backend ./dist/backend
+# Plugins pinned in docker/bundled-plugins.json, resolved as dist/plugins by
+# getBundledPluginsDir().
+COPY --chown=node:node --from=backend-builder /app/dist/plugins ./dist/plugins
+# Target of node_modules/@termix-ssh/plugin-sdk, which core and the plugins import.
+COPY --chown=node:node --from=backend-builder /app/packages/plugin-sdk/package.json ./packages/plugin-sdk/package.json
+COPY --chown=node:node --from=backend-builder /app/packages/plugin-sdk/dist ./packages/plugin-sdk/dist
+# Pre-baked OPKSSH binary. The opkssh plugin uses it when its checksum
+# matches, so an offline install never downloads one.
 COPY --chown=node:node --from=opkssh-downloader /opkssh /app/opkssh-bundled
 COPY --chown=node:node package.json ./
 # Schema for Postgres and MySQL. Unused by the default SQLite deployment, which
@@ -106,7 +130,7 @@ COPY --chown=node:node drizzle ./drizzle
 
 VOLUME ["/app/data"]
 
-EXPOSE ${PORT} 30001 30002 30003 30004 30005 30006 30007 30008 30009 30010 30011 30012
+EXPOSE ${PORT}
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget -q -O /dev/null http://localhost:30001/health || exit 1

@@ -34,48 +34,32 @@ export function pickResolvedPassword(
   return undefined;
 }
 
+const USERNAME_PLACEHOLDER = /\$external\.username/g;
+
 /**
- * Expands the `$oidc.preferred_username` placeholder in an SSH username to the
- * connecting user's OIDC identifier. Returns the username unchanged if it does
- * not contain the placeholder or the user has no OIDC identifier.
+ * Expands `$external.username` in an SSH username to the name the connecting
+ * user signed in with through SSO or LDAP: the subject of their first
+ * external identity. Returns the username unchanged if it has no placeholder
+ * or the user has no external sign-in.
  */
-export async function expandOidcUsername(
+export async function expandExternalUsername(
   username: string | undefined,
   userId: string,
 ): Promise<string | undefined> {
-  if (!username || !username.includes("$oidc.preferred_username")) {
+  if (!username || !new RegExp(USERNAME_PLACEHOLDER.source).test(username)) {
     return username;
   }
 
   try {
-    const { createCurrentUserRepository } =
+    const { createCurrentUserAuthRepository } =
       await import("../database/repositories/factory.js");
-    const user = await createCurrentUserRepository().findById(userId);
-    let oidcIdentifier = user?.oidcIdentifier;
-    if (!oidcIdentifier) return username;
+    const identities =
+      await createCurrentUserAuthRepository().listIdentitiesForUser(userId);
+    const externalName = [...identities].sort((a, b) => a.id - b.id)[0]
+      ?.subject;
+    if (!externalName) return username;
 
-    const match = /^ldap:(\d+):(.+)$/.exec(oidcIdentifier);
-    if (match) {
-      // Make sure the SSO provider is actually LDAP, to prevent spoofing.
-      const { createCurrentSsoProviderRepository } =
-        await import("../database/repositories/factory.js");
-      const claimedProviderId = Number(match[1]);
-      const provider =
-        user?.ssoProviderId != null
-          ? await createCurrentSsoProviderRepository().findById(
-              user.ssoProviderId,
-            )
-          : null;
-
-      if (
-        provider?.type === "ldap" &&
-        user?.ssoProviderId === claimedProviderId
-      ) {
-        oidcIdentifier = match[2];
-      }
-    }
-
-    return username.replace(/\$oidc\.preferred_username/g, oidcIdentifier);
+    return username.replace(USERNAME_PLACEHOLDER, () => externalName);
   } catch {
     return username;
   }

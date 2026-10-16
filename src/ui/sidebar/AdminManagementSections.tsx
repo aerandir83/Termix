@@ -1,3 +1,4 @@
+import { useConfirm } from "@/components/surface/surface-scope";
 import { useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -9,8 +10,11 @@ import {
   updateRole,
 } from "@/main-axios";
 import type { PermissionCatalogEntry, Role } from "@/main-axios";
+import { pluginKey } from "@/lib/plugin-i18n";
+import { PluginIcon } from "@/lib/plugin-icon";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
+import { PanelSearch } from "@/components/panel-layout";
 import {
   Activity,
   Check,
@@ -26,15 +30,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccordionSection } from "./AdminSettingsShared";
+import { roleLabel } from "@/lib/role-label";
 
 export type AdminUser = {
   id: string;
   username: string;
   isAdmin: boolean;
-  isOidc: boolean;
+  isExternal: boolean;
   passwordHash?: string;
   dataUnlocked?: boolean;
-  totpEnabled?: boolean;
+  secondFactorEnabled?: boolean;
 };
 
 export type AdminSession = {
@@ -72,7 +77,7 @@ type UsersSectionProps = {
   setEditUserTarget: Dispatch<SetStateAction<AdminUser | null>>;
   setEditUserOpen: Dispatch<SetStateAction<boolean>>;
   setLinkAccountTarget: Dispatch<
-    SetStateAction<{ id: string; username: string; isOidc: boolean } | null>
+    SetStateAction<{ id: string; username: string; isExternal: boolean } | null>
   >;
   setLinkAccountOpen: Dispatch<SetStateAction<boolean>>;
   setUnlinkAccountTarget: Dispatch<
@@ -110,6 +115,7 @@ export function AdminUsersSection({
   onPageChange,
 }: UsersSectionProps) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const hasPrev = page > 0;
   const hasNext = page + 1 < pageCount;
@@ -147,19 +153,19 @@ export function AdminUsersSection({
           </div>
         </div>
         <div className="py-2 border-b border-border">
-          <Input
+          <PanelSearch
             value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={onSearchChange}
             placeholder={t("admin.searchUsers")}
-            className="h-7 text-xs rounded-none"
+            fill
           />
         </div>
         {users.map((user) => {
           const authLabel =
-            user.isOidc && user.passwordHash
+            user.isExternal && user.passwordHash
               ? t("admin.authTypeDual")
-              : user.isOidc
-                ? t("admin.authTypeOidc")
+              : user.isExternal
+                ? t("admin.authTypeExternal")
                 : t("admin.authTypeLocal");
           return (
             <div
@@ -207,7 +213,7 @@ export function AdminUsersSection({
                 >
                   <Pencil className="size-3" />
                 </Button>
-                {user.isOidc && user.passwordHash ? (
+                {user.isExternal && user.passwordHash ? (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -233,7 +239,7 @@ export function AdminUsersSection({
                       setLinkAccountTarget({
                         id: user.id,
                         username: user.username,
-                        isOidc: user.isOidc,
+                        isExternal: user.isExternal,
                       });
                       setLinkAccountOpen(true);
                     }}
@@ -247,6 +253,13 @@ export function AdminUsersSection({
                   className="size-6 text-muted-foreground hover:text-destructive"
                   disabled={user.isAdmin}
                   onClick={async () => {
+                    const ok = await confirm({
+                      title: t("admin.deleteUserConfirm", {
+                        username: user.username,
+                      }),
+                      description: t("manage.cannotBeUndone"),
+                    });
+                    if (!ok) return;
                     try {
                       await deleteUser(user.username);
                       setUsers((prev) => prev.filter((u) => u.id !== user.id));
@@ -319,6 +332,7 @@ export function AdminSessionsSection({
   loadSessions,
 }: SessionsSectionProps) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
 
   return (
     <AccordionSection
@@ -373,6 +387,13 @@ export function AdminSessionsSection({
                 size="sm"
                 className="text-[10px] text-muted-foreground hover:text-destructive h-6 px-1.5"
                 onClick={async () => {
+                  const ok = await confirm({
+                    title: t("admin.revokeAllSessionsConfirm", {
+                      username: session.username ?? "",
+                    }),
+                    confirmLabel: t("admin.revokeAll"),
+                  });
+                  if (!ok) return;
                   try {
                     await revokeAllUserSessions(session.userId);
                     setSessions((prev) =>
@@ -391,6 +412,11 @@ export function AdminSessionsSection({
                 size="icon"
                 className="size-6 text-muted-foreground hover:text-destructive"
                 onClick={async () => {
+                  const ok = await confirm({
+                    title: t("admin.revokeSessionConfirm"),
+                    confirmLabel: t("admin.revokeSession"),
+                  });
+                  if (!ok) return;
                   try {
                     await revokeSession(session.id);
                     setSessions((prev) =>
@@ -445,6 +471,7 @@ export function AdminRolesSection({
   createRoleLoading,
 }: RolesSectionProps) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const [catalog, setCatalog] = useState<PermissionCatalogEntry[]>([]);
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const [editingPermissions, setEditingPermissions] = useState<Set<string>>(
@@ -542,7 +569,7 @@ export function AdminRolesSection({
                 <span className="text-accent-brand">*</span>
               </label>
               <Input
-                placeholder="e.g., developer"
+                placeholder="developer"
                 value={newRoleName}
                 onChange={(e) => setNewRoleName(e.target.value)}
                 className="text-xs"
@@ -554,7 +581,7 @@ export function AdminRolesSection({
                 <span className="text-accent-brand">*</span>
               </label>
               <Input
-                placeholder="e.g., Developer"
+                placeholder="Developer"
                 value={newRoleDisplayName}
                 onChange={(e) => setNewRoleDisplayName(e.target.value)}
                 className="text-xs"
@@ -611,7 +638,7 @@ export function AdminRolesSection({
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-semibold truncate">
-                      {role.displayName}
+                      {roleLabel(t, role.displayName)}
                     </span>
                     {role.isSystem ? (
                       <span className="text-[9px] font-semibold px-1 py-px border border-border text-muted-foreground">
@@ -650,6 +677,12 @@ export function AdminRolesSection({
                       size="icon"
                       className="size-6 text-muted-foreground hover:text-destructive"
                       onClick={async () => {
+                        const ok = await confirm({
+                          title: t("admin.deleteRoleConfirm", {
+                            name: role.displayName,
+                          }),
+                        });
+                        if (!ok) return;
                         await deleteRole(role.id);
                         setRoles((prev) =>
                           prev.filter((r) => r.id !== role.id),
@@ -671,8 +704,23 @@ export function AdminRolesSection({
                   {catalog.map((entry) => {
                     const wildcard = `${entry.group}.*`;
                     const wildcardOn = editingPermissions.has(wildcard);
+                    // A plugin group with enabled === false is still granted,
+                    // it just cannot be reached right now.
+                    const offline = entry.enabled === false;
+                    const titleFor = (permission: string) => {
+                      const item = entry.items?.find(
+                        (candidate) => candidate.permission === permission,
+                      );
+                      if (!item) return null;
+                      return entry.pluginId
+                        ? t(pluginKey(entry.pluginId, item.titleKey))
+                        : t(item.titleKey);
+                    };
                     return (
-                      <div key={entry.group} className="flex flex-col gap-1">
+                      <div
+                        key={entry.group}
+                        className={`flex flex-col gap-1 ${offline ? "opacity-50" : ""}`}
+                      >
                         <button
                           onClick={() => togglePermission(wildcard)}
                           className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-left"
@@ -684,6 +732,12 @@ export function AdminRolesSection({
                               <Check className="size-2 text-background" />
                             )}
                           </span>
+                          {entry.pluginId && (
+                            <PluginIcon
+                              name={entry.icon}
+                              className="size-3 shrink-0 text-muted-foreground"
+                            />
+                          )}
                           <span
                             className={
                               wildcardOn
@@ -691,13 +745,22 @@ export function AdminRolesSection({
                                 : "text-muted-foreground"
                             }
                           >
-                            {entry.group}.*
+                            {entry.label ??
+                              (entry.labelKey
+                                ? t(entry.labelKey)
+                                : entry.group)}
                           </span>
+                          {offline && (
+                            <span className="px-1 border border-border text-[9px] font-normal normal-case tracking-normal text-muted-foreground">
+                              {t("admin.rolePermissions.pluginDisabled")}
+                            </span>
+                          )}
                         </button>
                         <div className="flex flex-col gap-0.5 pl-4">
                           {entry.permissions.map((permission) => {
                             const checked =
                               wildcardOn || editingPermissions.has(permission);
+                            const title = titleFor(permission);
                             return (
                               <button
                                 key={permission}
@@ -712,6 +775,11 @@ export function AdminRolesSection({
                                     <Check className="size-2 text-background" />
                                   )}
                                 </span>
+                                {title && (
+                                  <span className="text-foreground">
+                                    {title}
+                                  </span>
+                                )}
                                 <span className="font-mono text-muted-foreground">
                                   {permission}
                                 </span>

@@ -4,24 +4,7 @@
 
 <h1>Termix</h1>
 
-<p>Self-hosted server management, from SSH and remote desktop to automations</p>
-
-<p>
-  English ·
-  <a href="docs/readme/README-CN.md">中文</a> ·
-  <a href="docs/readme/README-JA.md">日本語</a> ·
-  <a href="docs/readme/README-KO.md">한국어</a> ·
-  <a href="docs/readme/README-FR.md">Français</a> ·
-  <a href="docs/readme/README-DE.md">Deutsch</a> ·
-  <a href="docs/readme/README-ES.md">Español</a> ·
-  <a href="docs/readme/README-PT.md">Português</a> ·
-  <a href="docs/readme/README-RU.md">Русский</a> ·
-  <a href="docs/readme/README-AR.md">العربية</a> ·
-  <a href="docs/readme/README-HI.md">हिन्दी</a> ·
-  <a href="docs/readme/README-TR.md">Türkçe</a> ·
-  <a href="docs/readme/README-VI.md">Tiếng Việt</a> ·
-  <a href="docs/readme/README-IT.md">Italiano</a>
-</p>
+<p>Self-hosted, plugin-based server management</p>
 
 <p>
   <img src="https://img.shields.io/github/stars/Termix-SSH/Termix?style=flat&label=Stars&color=F39044&labelColor=1a1a1a" />
@@ -35,242 +18,81 @@
   <a href="https://donate.termix.site/"><img alt="Donations this month" src="https://img.shields.io/badge/dynamic/json?style=for-the-badge&label=Donations%20this%20month&query=%24.fiatTotal&prefix=%24&url=https%3A%2F%2Ftermix.site%2Fdonation-snapshot.json&color=F39044&labelColor=1a1a1a" /></a>
 </p>
 
-<br />
-
-Termix is free and open source. If you find it useful, consider [donating](https://donate.termix.site/) to help cover server costs and development time.
-
-<br />
-
-<img src="./docs/repo-images/Termix Header.png" alt="Termix Banner" width="900" />
-
-<br />
-<br />
-
-<p>
-  <img src="docs/repo-images/Repo of the Day.png" alt="Repo of the Day Achievement" width="280" />
-  <br />
-  <sub>Achieved on September 1st, 2025</sub>
-</p>
-
 </div>
 
 <br />
 
 ## Overview
 
-Termix is a free, open source, self-hosted platform for managing your servers. It puts SSH terminals, remote desktops (RDP, VNC, Telnet, Apple Remote Desktop), file transfers, tunnels, Docker, metrics, and automations in one place, on web, desktop, and mobile. It is a self-hosted alternative to Termius that stays free forever.
+Termix is a free, open source, self-hosted server management platform built on plugins. The core keeps your hosts, credentials, users, sharing and sessions. Everything else, like the SSH terminal, remote desktop, file manager, Docker and metrics, is a plugin you can turn on, off or remove.
+
+It runs on web, desktop and mobile. Think of it as a free, self-hosted Termius.
 
 <br />
 
-## Features
+## Try the Demo
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-**SSH Terminal:**
-A full terminal with browser-like tabs and split screen, up to 6 panels at once. Pick your theme, font, and colors. A toolbar sits above each session with live CPU, memory, and disk, plus quick links to that host's files, Docker, tunnels, and metrics.
-
-</td>
-<td width="50%" valign="top">
-
-**Remote Desktop:**
-RDP, VNC, Telnet, and Apple Remote Desktop in the browser, in tabs and split screen like any other session. Includes a file browser for RDP drives and drag-and-drop upload. On Windows desktop you can also open a host in the native RDP client.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**SSH Tunnels:**
-Local, remote, and dynamic SOCKS forwarding with auto reconnect and health checks. Client-to-server tunnels on the desktop app are stored on that machine, and you can save presets to the server to move a setup to another client.
-
-</td>
-<td width="50%" valign="top">
-
-**File Manager:**
-Browse, edit, upload, download, rename, move, and delete files over SFTP, with sudo support. View and edit code, images, audio, and video. Copy files straight from one server to another, with the fastest route picked for you and transfers checked for integrity.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Docker and Podman:**
-Start, stop, pause, and remove containers, watch their stats, and open a shell inside one. Works with both Docker and Podman. It is not meant to replace Portainer or Dockge, just to manage containers you already have.
-
-</td>
-<td width="50%" valign="top">
-
-**Host Manager:**
-Save and organize hosts with tags and nested folders you can name and color. Reuse saved credentials across hosts, deploy SSH keys automatically, group hosts under a parent host, bulk edit and export, and use Quick Connect for one-off connections you do not want to save.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Host Metrics:**
-CPU, memory, disk, network, temperature, uptime, processes, ports, logins, and system info on most Linux servers, with history graphs. Manager cards let you handle services, cron jobs, packages, users, firewall rules, WireGuard, Tailscale, SSL certs, logs, and health checks without leaving Termix.
-
-</td>
-<td width="50%" valign="top">
-
-**Automations:**
-Pick a trigger, then say what should happen. Triggers include a metric crossing a threshold, a host going up or down, a health check changing, a schedule, a container event, or an incoming webhook. Steps can run commands and snippets, control containers and tunnels, wake a host, call a URL, wait, branch on a condition, run another automation, and notify you over ntfy, Discord, or a webhook. Test runs let you try it safely first.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Fleets:**
-Group hosts into a fleet by picking them or with tag rules, so new hosts join on their own. Run one command on every host at once, push and pull files across all of them, install packages, and collect an inventory of OS, kernel, arch, and uptime.
-
-</td>
-<td width="50%" valign="top">
-
-**AI Assistant:**
-Optional, and off until you turn it on. Connect OpenAI, Anthropic, Gemini, Ollama, or any OpenAI compatible endpoint and ask about your setup. It reads hosts, fleets, snippets, and alerts, and proposes changes for you to approve instead of making them. It can never touch credentials, users, or settings. Admins can leave it off for the whole instance, and you can hide it during setup.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Login and Users:**
-Local accounts plus OIDC, LDAP, GitHub, and Google sign-in, with 2FA (TOTP), passkeys (WebAuthn), and trusted devices. Admins can manage users, map OIDC groups to roles, see every active session across platforms, and revoke them. Link your local and OIDC accounts together, and read the audit log of what everyone did.
-
-</td>
-<td width="50%" valign="top">
-
-**Roles and Sharing:**
-Create roles and share hosts with users or roles at four levels: connect, view, edit, and manage. Works with every auth type and every protocol, and you can override the credentials used for a shared host.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Alerts:**
-Set rules on host metrics like CPU, memory, and disk, and get notified over ntfy, Discord, or a webhook when they fire. See firing and resolved alerts in a history log, and dismiss the ones you do not care about.
-
-</td>
-<td width="50%" valign="top">
-
-**Homepage:**
-A drag-and-drop widget grid you build yourself. Widgets for host status, pings, service links, bookmarks, search, clocks, calendars, countdowns, notes, RSS, weather, images, iframes, Docker, tunnels, metrics charts, custom APIs, and even a live terminal.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Snippets and Tools:**
-Save commands you run often and fire them off in one click, with variables for the host and your own inputs. Run a single command across every open terminal, and search your command history with autocomplete.
-
-</td>
-<td width="50%" valign="top">
-
-**Session Sharing:**
-Share a live terminal, RDP, VNC, Telnet, or Apple Remote Desktop session in real time. Send a link anyone can join without an account, or share with a specific Termix user, in read-only or read-write mode. Shares can expire on their own or be revoked, and can be turned off globally or per host.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Session Recording and Logs:**
-Record terminal, RDP, and VNC sessions and play them back later. Download plain text logs of a session, and check the connection log to see exactly what happened during a connection.
-
-</td>
-<td width="50%" valign="top">
-
-**Serial Connections:**
-Talk to serial devices like routers, switches, and microcontrollers from the browser or desktop app. Set baud rate, data bits, stop bits, and parity. Uses the Web Serial API in supported browsers, or a native backend in the desktop app.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Tailscale:**
-Pull devices from your tailnet to add them as hosts in a couple of clicks, and connect with Tailscale SSH so your tailnet ACLs handle access and no credentials are stored. Headscale and custom endpoints work too.
-
-</td>
-<td width="50%" valign="top">
-
-**Proxmox:**
-Import hosts straight from a Proxmox instance, and watch node and guest stats, including CPU, memory, and storage, in their own tab.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Workspaces and Tabs:**
-Save a set of tabs with their split layout and reopen the whole thing in one click. Termix also remembers your last session, so your tabs come back across refreshes and devices.
-
-</td>
-<td width="50%" valign="top">
-
-**Guided Setup:**
-A short setup walks you through picking an interface preset, your theme, the features you want, and your first host. Simple mode hides what you do not use, and you can rerun setup or switch presets any time.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Desktop Standalone and Sync:**
-The desktop app runs on its own with a local backend and database, no server needed. You can also connect it to a Termix server for two-way sync of hosts, credentials, snippets, and more, and choose whether connections start locally or through the server.
-
-</td>
-<td width="50%" valign="top">
-
-**Command Line Interface:**
-A `termix` CLI for your shell and your scripts. Open terminals, run a command on one host or a whole fleet, move files over SFTP, and manage hosts, snippets, and credentials. Install with `npm install -g @termix-cli/cli` or grab a standalone binary. See the [CLI docs](https://docs.termix.site/cli).
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Security:**
-Passwords, keys, and other secrets are encrypted per user, and the database files themselves can be encrypted on disk. See the [docs](https://docs.termix.site/security) for how it works.
-
-</td>
-<td width="50%" valign="top">
-
-**Languages:**
-Around 30 languages built in, managed through [Crowdin](https://docs.termix.site/translations).
-
-</td>
-</tr>
-</table>
+Try it at [demo.termix.site](https://demo.termix.site/). Any username and password works.
 
 <br />
 
-<details>
-<summary><b>More features</b></summary>
+## Core
+
+What every install has, with or without plugins:
+
+- Hosts: Save hosts in nested folders with tags and parent hosts, bulk edit, import and export, and use Quick Connect for one-off connections
+- Credentials: Reuse saved passwords and keys across hosts, with host defaults you can set for the server, a user or a folder
+- Sharing and Roles: Share hosts, credentials and folders with users or roles at four levels: connect, view, edit and manage
+- Accounts: Local accounts, sessions you can see and revoke, trusted devices, API keys and an audit log
+- Security: Passwords, keys and other secrets are encrypted per user, and the database can be encrypted on disk
+- Desktop Sync: The desktop app runs on its own and can link to a Termix server to keep an offline copy of your account
+- Interface: Tabs and split screen, a command palette (double tap left shift), rebindable shortcuts, themes, branding and around 30 languages
+- Databases: SQLite by default, with PostgreSQL and MySQL supported too
+
 <br />
 
-- **Dashboard** - Your servers at a glance, with cards you arrange yourself
-- **Network Graph** - See your homelab drawn out from your hosts, with live status
-- **Tmux Monitor** - Browse tmux sessions, windows, and panes, with previews and search
-- **API Keys** - User-scoped keys with expiry dates for scripts and CI
-- **Export and Import** - Move hosts, credentials, and file manager data in and out
-- **Automatic SSL** - Certificates generated and renewed for you, with HTTPS redirects, or bring your own
-- **Databases** - SQLite by default, with PostgreSQL and MySQL supported too
-- **Modern UI** - Clean React interface that works on desktop and mobile, with themes like light, dark, and Dracula. Any connection can open full screen from a URL
-- **Command Palette** - Double tap left shift to jump to a host from the keyboard
-- **Keyboard Shortcuts** - Move between tabs, close tabs, and more, all rebindable
-- **Wake-on-LAN** - Wake a machine from Termix or from an automation step
-- **Trusted Proxy Auth** - Let a reverse proxy handle sign-in and pass the user through
-- **SSH Feature Rich** - Jump hosts, Warpgate, TOTP prompts, SOCKS5, host key verification, password autofill, [OPKSSH](https://github.com/openpubkey/opkssh), tmux, port knocking, terminal logging, agent forwarding, Bitwarden SSH agent, HashiCorp Vault SSH signing, and more
-- **Termix ID** - A built-in take on sshid.io. Claim a handle, publish your public keys at a resolver URL, and issue SSH certificates from the built-in CA
+## Plugins
 
-</details>
+Plugins add everything else. The official ones ship with Termix, and admins can install, update or remove plugins from the Plugins tab. Each plugin has its own repo.
+
+| Plugin                                                                      | What it does                                                                                                |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [ACME Certificates](https://github.com/Termix-SSH/Plugin-ACME-SSL)          | Gets the Termix HTTPS certificate from Let's Encrypt or any ACME provider and renews it for you.            |
+| [AI Assistant](https://github.com/Termix-SSH/Plugin-AI)                     | An AI assistant that reads your setup and proposes changes for you to approve.                              |
+| [Alerts](https://github.com/Termix-SSH/Plugin-Alerts)                       | One inbox for every alert in Termix, with delivery to webhooks, ntfy, Discord and email.                    |
+| [Automations](https://github.com/Termix-SSH/Plugin-Automations)             | Run steps on your hosts on a schedule or when something happens.                                            |
+| [Docker](https://github.com/Termix-SSH/Plugin-Docker)                       | Manage Docker and Podman containers on your hosts over SSH, with logs, stats and a console.                 |
+| [File Manager](https://github.com/Termix-SSH/Plugin-File-Manager)           | Browse, edit and move files over SFTP, including straight from one server to another.                       |
+| [Fleets](https://github.com/Termix-SSH/Plugin-Fleets)                       | Group hosts into fleets and run commands, package actions and file transfers on all of them at once.        |
+| [HashiCorp Vault](https://github.com/Termix-SSH/Plugin-Vault)               | Connect to hosts with short-lived SSH certificates signed by HashiCorp Vault.                               |
+| [Homepage](https://github.com/Termix-SSH/Plugin-Homepage)                   | A drag and drop widget page for your servers and services, plus service links for the dashboard.            |
+| [Host Metrics](https://github.com/Termix-SSH/Plugin-Host-Metrics)           | Live CPU, memory, disk, network and GPU stats, plus tools to manage your hosts.                             |
+| [LDAP](https://github.com/Termix-SSH/Plugin-LDAP)                           | Sign in with your LDAP or Active Directory username and password.                                           |
+| [Network Topology](https://github.com/Termix-SSH/Plugin-Network-Topology)   | Draws your hosts and the links between them as a live, interactive graph.                                   |
+| [OPKSSH](https://github.com/Termix-SSH/Plugin-OPKSSH)                       | Connect to hosts with short-lived OpenPubkey SSH certificates after signing in with your identity provider. |
+| [Passkeys](https://github.com/Termix-SSH/Plugin-WebAuthn)                   | Sign in with a passkey or security key instead of a password.                                               |
+| [Proxmox](https://github.com/Termix-SSH/Plugin-Proxmox)                     | Import Proxmox VE guests as hosts, keep them in sync and watch node stats.                                  |
+| [Remote Desktop](https://github.com/Termix-SSH/Plugin-Remote-Desktop)       | RDP, VNC and Telnet sessions in your browser, with clipboard, file transfer, sharing and recording.         |
+| [Secret Sources](https://github.com/Termix-SSH/Plugin-Secret-Sources)       | Pull host passwords and keys from 1Password when you connect instead of storing them in Termix.             |
+| [Serial](https://github.com/Termix-SSH/Plugin-Serial)                       | Open a serial console to a router, switch or other device plugged into your computer.                       |
+| [Session Recording](https://github.com/Termix-SSH/Plugin-Session-Recording) | Record terminal and remote desktop sessions and play them back or download them later.                      |
+| [Session Sharing](https://github.com/Termix-SSH/Plugin-Session-Sharing)     | Share live sessions by link or with another user, and present sessions to a group in meeting rooms.         |
+| [Single sign-on](https://github.com/Termix-SSH/Plugin-SSO)                  | Sign in with any OpenID Connect provider, GitHub or Google.                                                 |
+| [Snippets](https://github.com/Termix-SSH/Plugin-Snippets)                   | Save the commands you run often and run them in a terminal or on many hosts in one click.                   |
+| [SSH Terminal](https://github.com/Termix-SSH/Plugin-SSH-Terminal)           | SSH terminal sessions with tabs, split screen, history, macros and a local terminal in the desktop app.     |
+| [Step CA](https://github.com/Termix-SSH/Plugin-Step-CA)                     | Connect to hosts with short-lived SSH certificates from a smallstep step-ca server.                         |
+| [Tailscale](https://github.com/Termix-SSH/Plugin-Tailscale)                 | Add tailnet devices as hosts and connect with Tailscale SSH.                                                |
+| [Termix Identity](https://github.com/Termix-SSH/Plugin-Termix-Identity)     | Publish your SSH public keys under a public handle and run your own SSH certificate authority.              |
+| [Tmux Monitor](https://github.com/Termix-SSH/Plugin-Tmux-Monitor)           | Browse and control tmux sessions, windows and panes across your hosts.                                      |
+| [TOTP](https://github.com/Termix-SSH/Plugin-TOTP)                           | Two-factor sign in with a code from an authenticator app, with backup codes.                                |
+| [Tunnels](https://github.com/Termix-SSH/Plugin-Tunnels)                     | SSH port forwarding that reconnects on its own, plus client tunnels from the desktop app.                   |
+| [Usage Statistics](https://github.com/Termix-SSH/Plugin-Telemetry)          | Sends a small anonymous daily report so we can see how Termix is used.                                      |
+| [Wake-on-LAN](https://github.com/Termix-SSH/Plugin-Wake-On-LAN)             | Wake sleeping machines by sending a Wake-on-LAN packet to their MAC address.                                |
+| [Warpgate](https://github.com/Termix-SSH/Plugin-Warpgate)                   | Connect to hosts through a Warpgate SSH bastion.                                                            |
+| [Web Endpoint](https://github.com/Termix-SSH/Plugin-Web-Endpoint)           | Open a host's web UI inside Termix, directly or over an SSH tunnel.                                         |
+| [Workspaces](https://github.com/Termix-SSH/Plugin-Workspaces)               | Save your open tabs and split layouts and reopen them in one click.                                         |
+
+Want to build your own? Start from the [plugin template](https://github.com/Termix-SSH/Termix-Plugin-Template). Plugins you can install are listed in the [registry](https://github.com/Termix-SSH/Termix-Registry). Turn on the community registry in Plugins, Registries to install plugins made by other people, or add your own registry. See [submitting a plugin](https://docs.termix.site/develop/community-registry) and [hosting your own registry](https://docs.termix.site/develop/registries#host-your-own-registry).
 
 <br />
 
@@ -283,27 +105,27 @@ Around 30 languages built in, managed through [Crowdin](https://docs.termix.site
 </tr>
 <tr>
 <td align="center"><b>Web</b></td>
-<td>Any modern browser (Chrome, Safari, Firefox) · PWA support</td>
+<td>Any modern browser (Chrome, Safari, Firefox) | PWA support</td>
 </tr>
 <tr>
 <td align="center"><b>Windows</b> <sub>x64/ia32</sub></td>
-<td>Portable · MSI Installer · Chocolatey</td>
+<td>Portable | EXE and MSI Installer | Chocolatey</td>
 </tr>
 <tr>
-<td align="center"><b>Linux</b> <sub>x64/ia32</sub></td>
-<td>Portable · AUR · AppImage · Deb · Flatpak</td>
+<td align="center"><b>Linux</b> <sub>x64/arm64/armv7l</sub></td>
+<td>Portable | AUR | AppImage | Deb | Flatpak</td>
 </tr>
 <tr>
-<td align="center"><b>macOS</b> <sub>x64/ia32, v12.0+</sub></td>
-<td>Apple App Store · DMG · Homebrew</td>
+<td align="center"><b>macOS</b> <sub>Universal/x64/arm64, v12.0+</sub></td>
+<td>Apple App Store | DMG | Homebrew</td>
 </tr>
 <tr>
 <td align="center"><b>iOS/iPadOS</b> <sub>v15.1+</sub></td>
-<td>Apple App Store · IPA</td>
+<td>Apple App Store | IPA</td>
 </tr>
 <tr>
 <td align="center"><b>Android</b> <sub>v7.0+</sub></td>
-<td>Google Play Store · APK</td>
+<td>Google Play Store | APK</td>
 </tr>
 </table>
 
@@ -311,18 +133,14 @@ Around 30 languages built in, managed through [Crowdin](https://docs.termix.site
 
 ## Installation
 
-Visit the [Termix Docs](https://docs.termix.site/install) for full installation instructions across all platforms.
+See the [docs](https://docs.termix.site/install) for install steps on every platform.
 
-Deploying to Kubernetes? The Helm chart is in `charts/termix`, and setup instructions
-covering Ingress, Traefik, Argo CD, GitHub Actions, and GitLab CI are at
-[docs.termix.site/install/server/kubernetes](https://docs.termix.site/install/server/kubernetes).
-
-Sample Docker Compose file (you can omit `guacd` and the network if you don't plan on using remote desktop features):
+Sample Docker Compose file (you can leave out `guacd` and the network if you don't plan to use the Remote Desktop plugin):
 
 ```yaml
 services:
   termix:
-    image: ghcr.io/lukegus/termix:latest
+    image: ghcr.io/termix-ssh/termix:latest
     container_name: termix
     restart: unless-stopped
     ports:
@@ -331,6 +149,10 @@ services:
       - termix-data:/app/data
     environment:
       PORT: "8080"
+      GUACD_HOST: "guacd"
+      GUACD_TUNNEL_HOST: "termix"
+      GUACD_RECORDING_PATH: "/termix-data/session_recordings/guacamole"
+      GUACD_DRIVE_PATH: "/termix-data/rdp-drive"
     depends_on:
       - guacd
     networks:
@@ -340,8 +162,8 @@ services:
     image: guacamole/guacd:1.6.0
     container_name: guacd
     restart: unless-stopped
-    ports:
-      - "4822:4822"
+    volumes:
+      - termix-data:/termix-data
     networks:
       - termix-net
 
@@ -354,37 +176,17 @@ networks:
     driver: bridge
 ```
 
-### Command Line Interface
-
-Termix also has a CLI, so you can manage your servers from a terminal and use Termix in your own scripts.
-
-```bash
-npm install -g @termix-cli/cli
-termix login --url https://termix.example.com
-termix ssh 1
-```
-
-It can open terminals, run a command on one host or a whole fleet, move files over SFTP, and manage hosts, snippets and credentials. Full documentation is at [docs.termix.site/cli](https://docs.termix.site/cli).
-
 ### Cloud Hosting
 
-You can run the Termix server on a VPS instead of inside your own network. If Termix runs on the network it manages, an outage takes Termix down with it, right when you need it to fix things. Running it elsewhere keeps it reachable, gives you a static IP, and lets you get in from anywhere without a VPN or port forward.
+If Termix runs on the network it manages, an outage takes it down right when you need it. A VPS keeps it reachable, gives you a static IP and works from anywhere without a VPN or port forward.
 
-[GINERNET](https://docs.termix.site/install/ginernet) sponsors Termix, and the docs have a step by step guide for deploying to their VPS platform.
-
-<br />
-
-## Telemetry
-
-Termix sends a small anonymous ping once a day so I can see how many instances are running and which features get used. It contains a random instance ID, how many users and hosts you have, the app version, and which features (terminal, file manager, tunnels, docker, etc.) were used in the last 24 hours. It never contains usernames, hostnames, IP addresses, credentials, or anything else that identifies you or your servers.
-
-It is on by default. Turn it off in Admin Settings under General, or set `ENABLE_TELEMETRY=false` before you ever start Termix.
+[GINERNET](https://docs.termix.site/install/ginernet) sponsors Termix and the docs have a setup guide for their VPS.
 
 <br />
 
 ## Donate
 
-Termix is free and open source with no subscriptions or paid plans. If you find it useful, consider donating to help cover server costs, domains, and development time. Donations also help fund the time to research and learn what's needed to build features like SAML, Kubernetes, and Agent support. Track progress and donate below.
+Termix has no paid plans. Donations cover servers, domains and development time.
 
 [Donate](https://donate.termix.site/)
 
@@ -392,113 +194,60 @@ Termix is free and open source with no subscriptions or paid plans. If you find 
 
 ## Sponsors
 
-Interested in a paid placement to support development? Email [mail@termix.site](mailto:mail@termix.site).
+For a paid sponsor spot, email [mail@termix.site](mailto:mail@termix.site).
+
+<!-- SPONSORS:START -->
 
 <div align="center">
 
 <br />
 
-<a href="https://www.digitalocean.com/">
-  <img src="https://opensource.nyc3.cdn.digitaloceanspaces.com/attribution/assets/SVG/DO_Logo_horizontal_blue.svg" height="40" alt="DigitalOcean" />
-</a>
-&nbsp;&nbsp;&nbsp;
-<a href="https://crowdin.com/">
-  <img src="https://support.crowdin.com/assets/logos/core-logo/svg/crowdin-core-logo-cDark.svg" height="40" alt="Crowdin" />
-</a>
-&nbsp;&nbsp;&nbsp;
 <a href="https://www.blacksmith.sh/">
-  <img src="https://cdn.prod.website-files.com/681bfb0c9a4601bc6e288ec4/683ca9e2c5186757092611b8_e8cb22127df4da0811c4120a523722d2_logo-backsmith-wordmark-light.svg" height="40" alt="Blacksmith" />
+  <img src="https://termix.site/img/sponsors/blacksmith.svg" height="40" alt="Blacksmith" />
 </a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://www.cloudflare.com/">
-  <img src="https://sirv.sirv.com/website/screenshots/cloudflare/cloudflare-logo.png?w=300" height="40" alt="Cloudflare" />
+  <img src="https://termix.site/img/sponsors/cloudflare.png" height="40" alt="Cloudflare" />
 </a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://akamai.com/">
-  <img src="https://upload.wikimedia.org/wikipedia/commons/8/8b/Akamai_logo.svg" height="40" alt="Akamai" />
+  <img src="https://termix.site/img/sponsors/akamai.svg" height="40" alt="Akamai" />
 </a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://aws.amazon.com/">
-  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/9/93/Amazon_Web_Services_Logo.svg/960px-Amazon_Web_Services_Logo.svg.png" height="40" alt="AWS" />
+  <img src="https://termix.site/img/sponsors/aws.png" height="40" alt="AWS" />
 </a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://rackgenius.com/">
-  <img src="https://rackgenius.com/rackgenius-logo.png" height="40" alt="Rack Genius" />
+  <img src="https://termix.site/img/sponsors/rackgenius.png" height="40" alt="Rack Genius" />
 </a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://ginernet.com/">
-  <img src="https://ginernet.com/img/logo-web.png" height="40" alt="Ginernet" />
+  <img src="https://termix.site/img/sponsors/ginernet.png" height="40" alt="Ginernet" />
 </a>
+&nbsp;&nbsp;&nbsp;
+<a href="https://www.hetzner.com/?mtm_campaign=termix&mtm_medium=referral&mtm_content=sponsoring_link">
+  <img src="https://termix.site/img/sponsors/hetzner.png" height="40" alt="Hetzner" />
+</a>
+
 </div>
+
+<!-- SPONSORS:END -->
 
 <br />
 
 ## Support
 
-Need help or want to request a feature? Open a [new issue](https://github.com/Termix-SSH/Support/issues) and add as much detail as you can, in English if possible. You can also ask in the support channel on [Discord](https://discord.gg/jVQGdvHDrf), though replies there can take longer.
+Bugs and ideas for Termix itself (login, hosts, credentials, sharing, sync, the app and desktop app) go in this repo: [report a bug](https://github.com/Termix-SSH/Termix/issues/new?template=bug_report.yml) or [request a feature](https://github.com/Termix-SSH/Termix/issues/new?template=feature_request.yml).
 
-<br />
+Every plugin has its own repo, so a problem with the terminal, file manager, Docker, remote desktop or any other plugin goes in that plugin's repo (see the table above, or use Report an issue on the plugin's page in the app, which fills in your versions for you). Not sure where it goes? Open it here and it will be moved.
 
-## Screenshots
+You need a GitHub account. Add as much detail as you can, in English if possible.
 
-<div align="center">
-
-<br />
-
-[![YouTube](./docs/repo-images/YouTube.png)](https://www.youtube.com/@TermixSSH/videos)
-
-<sub>Watch update overviews on YouTube</sub>
-
-<br />
-<br />
-
-<table>
-<tr>
-<td><img src="./docs/repo-images/Image 1.png" alt="Termix Screenshot 1" width="400" /></td>
-<td><img src="./docs/repo-images/Image 2.png" alt="Termix Screenshot 2" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 3.png" alt="Termix Screenshot 3" width="400" /></td>
-<td><img src="./docs/repo-images/Image 4.png" alt="Termix Screenshot 4" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 5.png" alt="Termix Screenshot 5" width="400" /></td>
-<td><img src="./docs/repo-images/Image 6.png" alt="Termix Screenshot 6" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 7.png" alt="Termix Screenshot 7" width="400" /></td>
-<td><img src="./docs/repo-images/Image 8.png" alt="Termix Screenshot 8" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 9.png" alt="Termix Screenshot 9" width="400" /></td>
-<td><img src="./docs/repo-images/Image 10.png" alt="Termix Screenshot 10" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 11.png" alt="Termix Screenshot 11" width="400" /></td>
-<td><img src="./docs/repo-images/Image 12.png" alt="Termix Screenshot 12" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 13.png" alt="Termix Screenshot 13" width="400" /></td>
-<td><img src="./docs/repo-images/Image 14.png" alt="Termix Screenshot 14" width="400" /></td>
-</tr>
-<tr>
-<td><img src="./docs/repo-images/Image 15.png" alt="Termix Screenshot 15" width="400" /></td>
-<td><img src="./docs/repo-images/Image 16.png" alt="Termix Screenshot 16" width="400" /></td>
-</tr>
-</table>
-
-<sub>Some videos and images may be out of date or may not perfectly showcase features.</sub>
-
-</div>
-
-<br />
-
-## Planned Features
-
-See [Projects](https://github.com/orgs/Termix-SSH/projects/5) for all planned features. If you are looking to contribute, see [Contributing](https://github.com/Termix-SSH/Termix/blob/main/CONTRIBUTING.md).
+For discussions and questions, join the [Discord](https://discord.gg/jVQGdvHDrf) server. Update videos are on [YouTube](https://www.youtube.com/@TermixSSH/videos).
 
 <br />
 
 ## License
 
-Distributed under the Apache License Version 2.0. See `LICENSE` for more information.
+Apache License 2.0. See [LICENSE](LICENSE).

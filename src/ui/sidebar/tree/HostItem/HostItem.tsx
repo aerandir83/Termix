@@ -1,42 +1,37 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useState, type MouseEvent } from "react";
+import { actionOrder } from "@/sidebar/host-contributions";
+import { showsInBar, useBarActions } from "@/sidebar/tree/host-bar-actions";
+import { rem } from "@/lib/rem";
+import { enabledHostProtocols } from "@/sidebar/host-protocols";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
-  Box,
-  Boxes,
   Check,
   ChevronRight,
   Copy,
   CopyPlus,
   Cpu,
-  FolderSearch,
   GripVertical,
-  HardDrive,
   Key,
   KeyRound,
-  Layers, // --- tmux-monitor ---
+  LayoutPanelLeft,
   Link,
   MemoryStick,
-  MessagesSquare,
-  Monitor,
-  MonitorUp,
   MoreHorizontal,
-  MousePointerClick,
-  Network,
   Pencil,
   Pin,
-  ScreenShare,
-  Server,
   Share2,
+  SquarePlus,
   Terminal,
   Trash2,
   Users,
-  Zap,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -44,11 +39,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/dropdown-menu";
 import { toast } from "sonner";
-import { getHostPassword, wakeOnLan } from "@/main-axios";
+import { getHostPassword } from "@/main-axios";
 import type { Host, TabType } from "@/types/ui-types";
-import type {
-  HostDensity,
-  HostTrayTrigger,
+import {
+  defaultHostRowFields,
+  type HostDensity,
+  type HostClickBehavior,
+  type HostRowFields,
+  type HostTrayTrigger,
 } from "@/types/host-sidebar-preferences";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
@@ -56,13 +54,16 @@ import {
   canEditHost,
   canOverrideHostAuth,
   canShareHost,
+  authOverrideProtocols as listAuthOverrideProtocols,
+  authProtocolLabel,
 } from "@/sidebar/host-permissions";
 import { HostAuthOverrideModal } from "@/sidebar/HostAuthOverrideModal";
+import type { AuthOverrideProtocol } from "@/types/auth-protocols";
 import {
   useStatusColorScheme,
   getStatusClasses,
 } from "@/hooks/use-status-color-scheme";
-import { useHostStatus, useServerStatusMeta } from "@/lib/ServerStatusContext";
+import { useHostStatus } from "@/lib/ServerStatusContext";
 import {
   Tooltip,
   TooltipContent,
@@ -75,92 +76,55 @@ import {
   getPreferredHostAction,
   recordHostActionPreference,
 } from "@/lib/local-adaptive-preferences";
+import {
+  defaultConnectAction,
+  hostActionsFor,
+  hostBadgesFor,
+  hostMenuItemsFor,
+  useHostActions,
+  useHostBadges,
+  useHostContextMenuItems,
+  type HostActionDef,
+} from "@/sidebar/host-contributions";
+import { shell } from "@/plugin-host/shell-bridge";
+import type { TabShellCallbacks } from "@/shell/tab-registry";
+import {
+  openInSplit,
+  useSplitTargets,
+  type SplitOpenTarget,
+} from "@/shell/split/split-targets";
+import { MAX_PANES } from "@/shell/split/split-tree";
 
 export function statusCheckEnabled(host: Host): boolean {
-  return host.statsConfig?.statusCheckEnabled !== false;
+  return host.statusCheckEnabled !== false;
 }
 
 export function buildStatusTooltip(
   host: Host,
-  status: "online" | "reachable" | "offline",
+  status: "online" | "offline" | "unknown",
+  t: (key: string) => string = (k) => k,
 ): string {
+  if (!statusCheckEnabled(host)) return t("hosts.status.monitoringDisabled");
   const statusLabel =
     status === "online"
-      ? "Available"
-      : status === "reachable"
-        ? "Reachable, not authenticated"
-        : "Offline";
-  if (!statusCheckEnabled(host)) return "Monitoring disabled";
+      ? t("hosts.status.online")
+      : status === "offline"
+        ? t("hosts.status.offline")
+        : t("hosts.status.checking");
   const protocols: string[] = [];
   if (host.enableSsh) protocols.push("SSH");
-  if (host.enableRdp) protocols.push("RDP");
-  if (host.enableVnc) protocols.push("VNC");
-  if (host.enableTelnet) protocols.push("Telnet");
-  if (host.enableArd) protocols.push("ARD");
+  for (const protocol of enabledHostProtocols(host)) {
+    protocols.push(t(protocol.titleKey));
+  }
   if (protocols.length === 0) return statusLabel;
   return `${protocols.join(", ")}: ${statusLabel}`;
 }
 
-export function getSshActions(
-  host: Host,
-): { type: TabType; icon: typeof Terminal; label: string }[] {
-  const metricsEnabled =
-    host.enableSsh && host.statsConfig?.metricsEnabled !== false;
-  return [
-    host.enableSsh &&
-      host.enableTerminal && {
-        type: "terminal" as TabType,
-        icon: Terminal,
-        label: "Terminal",
-      },
-    host.enableSsh &&
-      host.enableFileManager && {
-        type: "files" as TabType,
-        icon: FolderSearch,
-        label: "Files",
-      },
-    host.enableSsh &&
-      host.enableDocker && {
-        type: "docker" as TabType,
-        icon: Box,
-        label: "Docker",
-      },
-    host.enableSsh &&
-      host.enableTunnel && {
-        type: "tunnel" as TabType,
-        icon: Network,
-        label: "Tunnel",
-      },
-    metricsEnabled && {
-      type: "host-metrics" as TabType,
-      icon: Server,
-      label: "Host Metrics",
-    },
-    host.enableProxmoxStats === true && {
-      type: "proxmox-stats" as TabType,
-      icon: HardDrive,
-      label: "Proxmox Stats",
-    },
-    // --- tmux-monitor --- opt-in per host, off by default
-    host.enableSsh &&
-      host.enableTerminal &&
-      host.enableTmuxMonitor && {
-        type: "tmux_monitor" as TabType,
-        icon: Layers,
-        label: "Tmux Monitor",
-      },
-  ].filter(Boolean) as {
-    type: TabType;
-    icon: typeof Terminal;
-    label: string;
-  }[];
-}
-
-export async function writeClipboardText(value: string): Promise<void> {
+async function writeClipboardText(value: string): Promise<void> {
   await copyToClipboard(value);
 }
 
-export function canCopyHostPassword(host: Host): boolean {
+function canCopyHostPassword(host: Host): boolean {
   return (
     host.authType === "password" ||
     host.authType === "credential" ||
@@ -169,12 +133,8 @@ export function canCopyHostPassword(host: Host): boolean {
   );
 }
 
-export function canCopyHostSudoPassword(host: Host): boolean {
-  return (
-    !!host.hasSudoPassword ||
-    !!host.sudoPassword ||
-    !!host.terminalConfig?.sudoPassword
-  );
+function canCopyHostSudoPassword(host: Host): boolean {
+  return !!host.hasSudoPassword || !!host.sudoPassword;
 }
 
 /**
@@ -183,6 +143,28 @@ export function canCopyHostSudoPassword(host: Host): boolean {
  * differ. Keeping this as one lookup (rather than two parallel JSX trees)
  * means a future style tweak only has to be made once.
  */
+const DOUBLE_CLICK_WINDOW_MS = 250;
+
+const DEFAULT_ROW_FIELDS = defaultHostRowFields();
+
+export function formatHostAddress(
+  host: Pick<Host, "username" | "ip" | "port"> &
+    Partial<Pick<Host, "enableSsh" | "pluginSettings" | "protocolAuth">>,
+  fields: Pick<HostRowFields, "showUsername" | "showPort">,
+): string {
+  const protocol =
+    host.enableSsh === false ? enabledHostProtocols(host)[0] : undefined;
+  const username =
+    host.enableSsh === false
+      ? protocol
+        ? host.protocolAuth?.[protocol.id]?.username
+        : undefined
+      : host.username;
+  const user = fields.showUsername && username ? `${username}@` : "";
+  const port = fields.showPort && host.port ? `:${host.port}` : "";
+  return `${user}${host.ip}${port}`;
+}
+
 const HOST_ITEM_DENSITY_TOKENS = {
   comfortable: {
     rowPadding: "pl-[8.75px] pr-[7px] py-[7px]",
@@ -205,7 +187,6 @@ export function HostItem({
   onOpenTab,
   onEditHost: onEditHostProp,
   onShareHost: onShareHostProp,
-  onProxmoxDiscover,
   onDelete,
   onDuplicate,
   query = "",
@@ -226,8 +207,10 @@ export function HostItem({
   trayTrigger = "hover",
   showTags = true,
   openOnDoubleClick = false,
+  hostClickBehavior = "newTab",
   showResourceBars = true,
   showStatusStripes = true,
+  rowFields = DEFAULT_ROW_FIELDS,
   rowActions = "full",
   arrangeMode = false,
   isDragging = false,
@@ -241,7 +224,14 @@ export function HostItem({
   onDropChildHosts,
 }: {
   host: Host;
-  onOpenTab: (type: TabType) => void;
+  onOpenTab: (
+    type: TabType,
+    options?: {
+      data?: Record<string, unknown>;
+      label?: string;
+      forceNewTab?: boolean;
+    },
+  ) => void;
   onEditHost?: () => void;
   onShareHost?: () => void;
   onDelete: () => void;
@@ -257,7 +247,6 @@ export function HostItem({
   onTrayOpenChange?: (open: boolean) => void;
   isHovered?: boolean;
   onHoverChange?: (hovered: boolean) => void;
-  onProxmoxDiscover?: () => void;
   onDragStart?: () => void;
   onDragEnd?: () => void;
   /** Nesting level when rendered in a flattened virtual list. */
@@ -267,10 +256,13 @@ export function HostItem({
   showTags?: boolean;
   /** Requires a double click to launch instead of a single click. */
   openOnDoubleClick?: boolean;
+  /** What a click does when the host already has an open tab. */
+  hostClickBehavior?: HostClickBehavior;
   /** Preset-driven: hides the CPU/RAM bars without changing density. */
   showResourceBars?: boolean;
   /** Preset-driven: hides the per-row status color stripe. */
   showStatusStripes?: boolean;
+  rowFields?: HostRowFields;
   /** "essential" trims the row's management actions to the common few. */
   rowActions?: "essential" | "full";
   /** When true (rearranging unlocked), the row can be dragged: its edges
@@ -302,25 +294,32 @@ export function HostItem({
   const onEditHost = canEditHost(host) ? onEditHostProp : undefined;
   const onShareHost = canShareHost(host) ? onShareHostProp : undefined;
   const allowDelete = canDeleteHost(host);
-  const metricsEnabled =
-    host.enableSsh && host.statsConfig?.metricsEnabled !== false;
+  const allHostActions = useHostActions();
+  const pluginActions = hostActionsFor(allHostActions, host);
+  const barActions = useBarActions();
+  const badges = hostBadgesFor(useHostBadges(), host);
+  const pluginMenuItems = hostMenuItemsFor(useHostContextMenuItems(), host);
+  const splitTargets = useSplitTargets();
   const statusScheme = useStatusColorScheme();
-  const { initialLoadComplete } = useServerStatusMeta();
   const statusCheckOn = statusCheckEnabled(host);
-  const statusLoading = !initialLoadComplete && statusCheckOn;
-  // Per-host subscription — status polls only re-render rows that flipped.
-  const liveStatus = useHostStatus(Number(host.id), statusCheckOn);
+  // Per-host subscription, so a poll only re-renders rows that flipped.
   const availability =
-    liveStatus === "online" ||
-    liveStatus === "reachable" ||
-    liveStatus === "offline"
-      ? liveStatus
-      : host.status === "reachable"
-        ? "reachable"
-        : host.online
-          ? "online"
-          : "offline";
+    useHostStatus(Number(host.id), statusCheckOn) ?? "offline";
+  const statusLoading = availability === "unknown";
   const isOnline = availability === "online";
+  const previousAvailability = useRef(availability);
+  const [statusLocking, setStatusLocking] = useState(false);
+
+  useEffect(() => {
+    const justCameOnline =
+      previousAvailability.current !== "online" && availability === "online";
+    previousAvailability.current = availability;
+    if (!justCameOnline) return;
+
+    setStatusLocking(true);
+    const timeout = window.setTimeout(() => setStatusLocking(false), 400);
+    return () => window.clearTimeout(timeout);
+  }, [availability]);
   const isTouchOnly =
     typeof window !== "undefined" && window.matchMedia("(hover: none)").matches;
   const alwaysShowTray = trayTrigger === "always";
@@ -329,27 +328,39 @@ export function HostItem({
     !alwaysShowTray && !actionsOnly && (trayTrigger === "click" || isTouchOnly);
   const showPasswordCopy = !host.isShared && canCopyHostPassword(host);
   const showSudoPasswordCopy = !host.isShared && canCopyHostSudoPassword(host);
-  const canOverrideAuth = canOverrideHostAuth(host, "ssh");
-  const [authOverrideOpen, setAuthOverrideOpen] = useState(false);
+  const authOverrideProtocols = listAuthOverrideProtocols().filter((protocol) =>
+    canOverrideHostAuth(host, protocol),
+  );
+  const [authOverrideProtocol, setAuthOverrideProtocol] =
+    useState<AuthOverrideProtocol | null>(null);
   const [parentDragOver, setParentDragOver] = useState(false);
-  const [nativeRdpAvailable, setNativeRdpAvailable] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
-  useEffect(() => {
-    if (!window.electronAPI?.isElectron) return;
-    window.electronAPI
-      .getPlatform()
-      .then((platform) => setNativeRdpAvailable(platform === "win32"))
-      .catch(() => setNativeRdpAvailable(false));
-  }, []);
   // Density decides the base shape; the preset can only take rows away, never
   // add them, so a row's real height stays <= the virtualizer's fixed estimate.
   const densityTokens = HOST_ITEM_DENSITY_TOKENS[density];
   const tokens = {
     ...densityTokens,
+    showAddressRow: densityTokens.showAddressRow && rowFields.showAddress,
     showTagsRow: densityTokens.showTagsRow && showTags,
     showResourceRow: densityTokens.showResourceRow && showResourceBars,
   };
   const isCompact = density === "compact";
+  const focusExistingTab = hostClickBehavior !== "newTab";
+  const doubleClickOpensNew =
+    hostClickBehavior === "focusExistingDoubleClickNew";
+  // In double click mode a single click waits out the double click window,
+  // so a double click doesn't also switch to (or open) a tab first.
+  const singleClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (singleClickTimer.current) clearTimeout(singleClickTimer.current);
+    },
+    [],
+  );
   const reorderEdge = isReorderHovered ? reorderHoverEdge : null;
   const canDrag =
     arrangeMode && !selectionMode && !isTouchOnly && canEditHost(host);
@@ -381,171 +392,140 @@ export function HostItem({
     }
   }
 
-  async function handleNativeRdp(e: MouseEvent) {
-    e.stopPropagation();
-    try {
-      const result = await window.electronAPI.openNativeRdp({
-        host: host.ip,
-        port: host.rdpPort ?? 3389,
-        username: host.rdpUser,
-        domain: host.domain,
-      });
-      if (result.success) {
-        toast.success(t("hosts.nativeRdpOpened"));
-      } else {
-        toast.error(result.error || t("hosts.nativeRdpFailed"));
-      }
-    } catch {
-      toast.error(t("hosts.nativeRdpFailed"));
-    }
-  }
-
   if (query && !hostMatchesQuery(host, query)) return null;
 
   const depthStyle =
-    depth > 0 ? ({ paddingLeft: depth * 12 } as const) : undefined;
+    depth > 0 ? ({ paddingLeft: rem(depth * 12) } as const) : undefined;
 
-  const trayButtonClass =
-    "flex items-center justify-center size-[22.75px] text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors";
+  const trayButtonClass = `flex items-center justify-center ${isCompact ? "size-[19px]" : "size-[22.75px]"} text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors`;
 
-  const sshActions = getSshActions(host);
-  const availableActions: TabType[] = [
-    ...sshActions.map(({ type }) => type),
-    ...(host.enableRdp ? (["rdp"] as const) : []),
-    ...(host.enableVnc ? (["vnc"] as const) : []),
-    ...(host.enableTelnet ? (["telnet"] as const) : []),
-    ...(host.enableArd ? (["ard"] as const) : []),
-  ];
-  const defaultAction: TabType = host.enableSsh
-    ? "terminal"
-    : host.enableRdp
-      ? "rdp"
-      : host.enableVnc
-        ? "vnc"
-        : host.enableTelnet
-          ? "telnet"
-          : host.enableArd
-            ? "ard"
-            : "terminal";
-  const openHostTab = (type: TabType) => {
+  const availableActions: TabType[] = pluginActions.flatMap((action) =>
+    action.tabType ? [action.tabType] : [],
+  );
+  // Empty when no running plugin can connect to this host.
+  const defaultAction: TabType =
+    defaultConnectAction(allHostActions, host)?.tabType ?? "";
+  const openHostTab = (
+    type: TabType,
+    options?: {
+      data?: Record<string, unknown>;
+      label?: string;
+      forceNewTab?: boolean;
+    },
+  ) => {
+    if (!type) return;
     markTabSurfaceUsed(type);
     recordHostActionPreference(host.id, type);
-    onOpenTab(type);
+    onOpenTab(type, {
+      ...options,
+      forceNewTab: options?.forceNewTab ?? !focusExistingTab,
+    });
   };
+
+  // A plugin action opening a tab goes through this row, so it gets the same
+  // focus-existing and preference handling as a core one.
+  const rowShell: TabShellCallbacks = {
+    ...shell,
+    openTab: (_host, type, options) => openHostTab(type, options),
+  };
+
+  const runPluginAction = (action: HostActionDef) => {
+    if (action.run) action.run(host, rowShell);
+    else if (action.tabType) openHostTab(action.tabType);
+  };
+
+  /** Plugin actions in row order. */
+  const rowEntries = [
+    ...pluginActions.map((action) => {
+      const items = action.items?.(host);
+      return {
+        key: action.id,
+        order: actionOrder(action),
+        icon: action.icon as typeof Terminal,
+        label: action.label?.(host) ?? t(action.titleKey),
+        tabType: action.tabType,
+        tray: showsInBar(barActions, action),
+        items:
+          items && items.length > 1
+            ? items.map((item) => ({
+                id: item.id,
+                label: item.label,
+                run: () => item.run(host, rowShell),
+              }))
+            : undefined,
+        run: () =>
+          items && items.length === 1
+            ? items[0].run(host, rowShell)
+            : runPluginAction(action),
+      };
+    }),
+  ].sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+  const trayEntries = rowEntries.filter((entry) => entry.tray);
 
   const connectionButtons = (
     <>
-      {sshActions.map(({ type, icon: Icon, label }) => (
-        <button
-          key={type}
-          title={label}
-          onPointerEnter={() => preloadTabSurface(type)}
-          onFocus={() => preloadTabSurface(type)}
-          onClick={(e) => {
-            e.stopPropagation();
-            openHostTab(type);
-          }}
-          className={trayButtonClass}
-        >
-          <Icon className="size-3.5" />
-        </button>
-      ))}
-      {host.enableSsh &&
-        (host.enableRdp ||
-          host.enableVnc ||
-          host.enableTelnet ||
-          host.enableArd) &&
-        sshActions.length > 0 && (
-          <div className="w-px h-3.5 bg-border/60 mx-0.5 shrink-0" />
-        )}
-      {host.enableRdp && (
-        <button
-          title={t("hosts.connectRdp")}
-          onPointerEnter={() => preloadTabSurface("rdp")}
-          onFocus={() => preloadTabSurface("rdp")}
-          onClick={(e) => {
-            e.stopPropagation();
-            openHostTab("rdp");
-          }}
-          className={trayButtonClass}
-        >
-          <Monitor className="size-3.5" />
-        </button>
-      )}
-      {host.enableRdp && nativeRdpAvailable && (
-        <button
-          title={t("hosts.openNativeRdp")}
-          onClick={handleNativeRdp}
-          className={trayButtonClass}
-        >
-          <MonitorUp className="size-3.5" />
-        </button>
-      )}
-      {host.enableVnc && (
-        <button
-          title={t("hosts.connectVnc")}
-          onPointerEnter={() => preloadTabSurface("vnc")}
-          onFocus={() => preloadTabSurface("vnc")}
-          onClick={(e) => {
-            e.stopPropagation();
-            openHostTab("vnc");
-          }}
-          className={trayButtonClass}
-        >
-          <MousePointerClick className="size-3.5" />
-        </button>
-      )}
-      {host.enableTelnet && (
-        <button
-          title={t("hosts.connectTelnet")}
-          onPointerEnter={() => preloadTabSurface("telnet")}
-          onFocus={() => preloadTabSurface("telnet")}
-          onClick={(e) => {
-            e.stopPropagation();
-            openHostTab("telnet");
-          }}
-          className={trayButtonClass}
-        >
-          <MessagesSquare className="size-3.5" />
-        </button>
-      )}
-      {host.enableArd && (
-        <button
-          title={t("hosts.connectArd")}
-          onPointerEnter={() => preloadTabSurface("ard")}
-          onFocus={() => preloadTabSurface("ard")}
-          onClick={(e) => {
-            e.stopPropagation();
-            openHostTab("ard");
-          }}
-          className={trayButtonClass}
-        >
-          <ScreenShare className="size-3.5" />
-        </button>
-      )}
-      {host.macAddress && (
-        <button
-          title={t("hosts.wakeOnLanAction")}
-          onClick={async (e) => {
-            e.stopPropagation();
-            try {
-              await wakeOnLan(Number(host.id));
-              toast.success(t("hosts.wakeOnLanSuccess", { name: host.name }));
-            } catch {
-              toast.error(t("hosts.wakeOnLanError"));
+      {trayEntries.map((entry, index) => {
+        const Icon = entry.icon;
+        // A thin rule between host tools and the other ways to connect.
+        const separator =
+          index > 0 &&
+          trayEntries[index - 1].order < 100 &&
+          entry.order >= 100 ? (
+            <div
+              key={`${entry.key}-separator`}
+              className="w-px h-3.5 bg-border/60 mx-0.5 shrink-0"
+            />
+          ) : null;
+        const button = entry.items ? (
+          <DropdownMenu key={entry.key}>
+            <DropdownMenuTrigger asChild>
+              <button
+                title={entry.label}
+                onClick={(e) => e.stopPropagation()}
+                className={trayButtonClass}
+              >
+                <Icon className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {entry.items.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    item.run();
+                  }}
+                >
+                  <Icon className="size-3.5 mr-2" />
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <button
+            key={entry.key}
+            title={entry.label}
+            onPointerEnter={() =>
+              entry.tabType && preloadTabSurface(entry.tabType)
             }
-          }}
-          className={trayButtonClass}
-        >
-          <Zap className="size-3.5" />
-        </button>
-      )}
+            onFocus={() => entry.tabType && preloadTabSurface(entry.tabType)}
+            onClick={(e) => {
+              e.stopPropagation();
+              entry.run();
+            }}
+            className={trayButtonClass}
+          >
+            <Icon className="size-3.5" />
+          </button>
+        );
+        return separator ? [separator, button] : button;
+      })}
     </>
   );
 
   // "essential" only trims buttons that the overflow menu also offers, so no
-  // action becomes unreachable. Share and Proxmox discover have no menu entry,
-  // so they always stay on the row.
+  // action becomes unreachable.
   const essentialActions = rowActions === "essential";
 
   const managementButtons = (
@@ -592,53 +572,256 @@ export function HostItem({
           <Share2 className="size-3.5" />
         </button>
       )}
-      {host.enableProxmox && onProxmoxDiscover && (
-        <button
-          title={t("hosts.proxmoxDiscoverAction")}
-          onClick={(e) => {
-            e.stopPropagation();
-            onProxmoxDiscover();
-          }}
-          className={trayButtonClass}
-        >
-          <Boxes className="size-3.5" />
-        </button>
-      )}
-      <DropdownMenu open={isMenuOpen} onOpenChange={onMenuOpenChange}>
-        <DropdownMenuTrigger asChild>
-          <button
-            title={t("hosts.moreOptions")}
-            onClick={(e) => e.stopPropagation()}
-            className={trayButtonClass}
-          >
-            <MoreHorizontal className="size-3.5" />
-          </button>
-        </DropdownMenuTrigger>
+      <DropdownMenu
+        open={isMenuOpen}
+        onOpenChange={(open) => {
+          if (!open) setContextMenuPosition(null);
+          onMenuOpenChange?.(open);
+        }}
+      >
+        {contextMenuPosition ? (
+          createPortal(
+            <DropdownMenuTrigger asChild>
+              <button
+                title={t("hosts.moreOptions")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setContextMenuPosition(null);
+                }}
+                className="fixed z-50 size-px opacity-0 pointer-events-none"
+                style={{
+                  left: contextMenuPosition.x,
+                  top: contextMenuPosition.y,
+                }}
+              >
+                <MoreHorizontal className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>,
+            document.body,
+          )
+        ) : (
+          <DropdownMenuTrigger asChild>
+            <button
+              title={t("hosts.moreOptions")}
+              onClick={(e) => {
+                e.stopPropagation();
+                setContextMenuPosition(null);
+              }}
+              className={trayButtonClass}
+            >
+              <MoreHorizontal className="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        )}
         <DropdownMenuContent
           align="start"
           className="text-xs w-auto min-w-44 max-w-72 whitespace-nowrap"
         >
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Terminal className="size-3.5 mr-2" />
+              {t("common.connect")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {rowEntries.map((entry) => {
+                const Icon = entry.icon;
+                return entry.items ? (
+                  <DropdownMenuSub key={entry.key}>
+                    <DropdownMenuSubTrigger>
+                      <Icon className="size-3.5 mr-2" />
+                      {entry.label}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {entry.items.map((item) => (
+                        <DropdownMenuItem
+                          key={item.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            item.run();
+                          }}
+                        >
+                          <Icon className="size-3.5 mr-2" />
+                          {item.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : (
+                  <DropdownMenuItem
+                    key={entry.key}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      entry.run();
+                    }}
+                  >
+                    <Icon className="size-3.5 mr-2" />
+                    {entry.label}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          {focusExistingTab && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                openHostTab(defaultAction, { forceNewTab: true });
+              }}
+            >
+              <SquarePlus className="size-3.5 mr-2" />
+              {t("hosts.openInNewTab")}
+            </DropdownMenuItem>
+          )}
+          {defaultAction &&
+            (splitTargets.canStartSplit || splitTargets.splits.length > 0) && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <LayoutPanelLeft className="size-3.5 mr-2" />
+                  {t("splitScreen.openInSplit")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-w-72">
+                  {(() => {
+                    const openAt = (target: SplitOpenTarget) =>
+                      openInSplit(target, () =>
+                        openHostTab(defaultAction, { forceNewTab: true }),
+                      );
+                    return (
+                      <>
+                        {splitTargets.canStartSplit && (
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openAt({ kind: "newSplit" });
+                            }}
+                          >
+                            {t("splitScreen.openInNewSplit")}
+                          </DropdownMenuItem>
+                        )}
+                        {splitTargets.splits.map((split) => (
+                          <div key={split.id}>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {split.label}
+                            </DropdownMenuLabel>
+                            {split.panes.map((pane) => (
+                              <DropdownMenuItem
+                                key={pane.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openAt({
+                                    kind: "pane",
+                                    splitTabId: split.id,
+                                    paneId: pane.id,
+                                  });
+                                }}
+                              >
+                                <span className="truncate">
+                                  {pane.label
+                                    ? t("splitScreen.paneItem", {
+                                        index: pane.index,
+                                        label: pane.label,
+                                      })
+                                    : t("splitScreen.paneEmptyItem", {
+                                        index: pane.index,
+                                      })}
+                                </span>
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuItem
+                              disabled={split.full}
+                              title={
+                                split.full
+                                  ? t("splitScreen.maxPanes", {
+                                      count: MAX_PANES,
+                                    })
+                                  : undefined
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openAt({
+                                  kind: "newPane",
+                                  splitTabId: split.id,
+                                });
+                              }}
+                            >
+                              {t("splitScreen.newPaneRight")}
+                            </DropdownMenuItem>
+                          </div>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+          <DropdownMenuSeparator />
+          {onEditHost && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditHost();
+              }}
+            >
+              <Pencil className="size-3.5 mr-2" />
+              {t("hosts.editHostAction")}
+            </DropdownMenuItem>
+          )}
+          {onShareHost && (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onShareHost();
+              }}
+            >
+              <Share2 className="size-3.5 mr-2" />
+              {t("hosts.shareHost")}
+            </DropdownMenuItem>
+          )}
+          {pluginMenuItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <DropdownMenuItem
+                key={item.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  item.run(host, rowShell);
+                }}
+              >
+                {Icon && <Icon className="size-3.5 mr-2" />}
+                {t(item.titleKey)}
+              </DropdownMenuItem>
+            );
+          })}
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
-              writeClipboardText(`${host.username}@${host.ip}`);
+              writeClipboardText(
+                formatHostAddress(host, {
+                  showUsername: true,
+                  showPort: false,
+                }),
+              );
               toast.success(t("hosts.copiedToClipboard"));
             }}
           >
             <Copy className="size-3.5 mr-2" />
             {t("hosts.copyAddress")}
           </DropdownMenuItem>
-          {canOverrideAuth && (
+          {authOverrideProtocols.map((protocol) => (
             <DropdownMenuItem
+              key={protocol}
               onClick={(e) => {
                 e.stopPropagation();
-                setAuthOverrideOpen(true);
+                setAuthOverrideProtocol(protocol);
               }}
             >
               <KeyRound className="size-3.5 mr-2" />
-              {t("hosts.sharing.authOverrideAction")}
+              {t("hosts.sharing.authOverrideActionProtocol", {
+                protocol: authProtocolLabel(protocol, t),
+              })}
             </DropdownMenuItem>
-          )}
+          ))}
           {showPasswordCopy && (
             <DropdownMenuItem
               onClick={(e) => handleCopyPassword(e, "password")}
@@ -661,162 +844,28 @@ export function HostItem({
               {t("hosts.copyLink")}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              {host.enableSsh && host.enableTerminal && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=terminal&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.terminalUrlCopied"));
-                  }}
-                >
-                  <Terminal className="size-3.5 mr-2" />
-                  {t("hosts.copyTerminalUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableSsh && host.enableFileManager && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=file-manager&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.fileManagerUrlCopied"));
-                  }}
-                >
-                  <FolderSearch className="size-3.5 mr-2" />
-                  {t("hosts.copyFileManagerUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableSsh && host.enableTunnel && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=tunnel&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.tunnelUrlCopied"));
-                  }}
-                >
-                  <Network className="size-3.5 mr-2" />
-                  {t("hosts.copyTunnelUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableSsh && host.enableDocker && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=docker&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.dockerUrlCopied"));
-                  }}
-                >
-                  <Box className="size-3.5 mr-2" />
-                  {t("hosts.copyDockerUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableSsh && metricsEnabled && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=host-metrics&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.hostMetricsUrlCopied"));
-                  }}
-                >
-                  <Server className="size-3.5 mr-2" />
-                  {t("hosts.copyHostMetricsUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableSsh && host.enableProxmoxStats === true && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=proxmox-stats&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.proxmoxStatsUrlCopied"));
-                  }}
-                >
-                  <HardDrive className="size-3.5 mr-2" />
-                  {t("hosts.copyProxmoxStatsUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableSsh &&
-                host.enableTerminal &&
-                host.enableTmuxMonitor && (
-                  <DropdownMenuItem
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      writeClipboardText(
-                        `${window.location.origin}?view=tmux_monitor&hostId=${host.id}`,
-                      );
-                      toast.success(t("hosts.tmuxMonitorUrlCopied"));
-                    }}
-                  >
-                    <Layers className="size-3.5 mr-2" />
-                    {t("hosts.copyTmuxMonitorUrlAction")}
-                  </DropdownMenuItem>
-                )}
-              {host.enableRdp && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=rdp&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.rdpUrlCopied"));
-                  }}
-                >
-                  <Monitor className="size-3.5 mr-2" />
-                  {t("hosts.copyRdpUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableVnc && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=vnc&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.vncUrlCopied"));
-                  }}
-                >
-                  <MousePointerClick className="size-3.5 mr-2" />
-                  {t("hosts.copyVncUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableTelnet && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=telnet&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.telnetUrlCopied"));
-                  }}
-                >
-                  <MessagesSquare className="size-3.5 mr-2" />
-                  {t("hosts.copyTelnetUrlAction")}
-                </DropdownMenuItem>
-              )}
-              {host.enableArd && (
-                <DropdownMenuItem
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    writeClipboardText(
-                      `${window.location.origin}?view=ard&hostId=${host.id}`,
-                    );
-                    toast.success(t("hosts.ardUrlCopied"));
-                  }}
-                >
-                  <ScreenShare className="size-3.5 mr-2" />
-                  {t("hosts.copyArdUrlAction")}
-                </DropdownMenuItem>
-              )}
+              {pluginActions
+                .filter((action) => action.copyUrlView)
+                .map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <DropdownMenuItem
+                      key={action.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        writeClipboardText(
+                          `${window.location.origin}?view=${encodeURIComponent(action.copyUrlView!)}&hostId=${host.id}`,
+                        );
+                        toast.success(t("hosts.copiedToClipboard"));
+                      }}
+                    >
+                      <Icon className="size-3.5 mr-2" />
+                      {t("hosts.copyViewUrlAction", {
+                        name: t(action.titleKey),
+                      })}
+                    </DropdownMenuItem>
+                  );
+                })}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           {allowDelete && (
@@ -849,7 +898,7 @@ export function HostItem({
     </>
   );
 
-  const trayOpenState = isTrayOpen || isMenuOpen;
+  const trayOpenState = isTrayOpen || (isMenuOpen && !contextMenuPosition);
   // Hover mode keeps the tray open from React state rather than group-hover so
   // the virtualizer can reserve the expanded height for this row.
   const hoverTrayOpen =
@@ -857,7 +906,7 @@ export function HostItem({
     !actionsOnly &&
     !shouldUseClickTray &&
     !selectionMode &&
-    (isHovered || isMenuOpen);
+    (isHovered || (isMenuOpen && !contextMenuPosition));
   // A collapsed tray must not earn the text column's gap-[3.5px]. Clipping to
   // max-h-0 leaves it a flex item, so every closed row measured ~3.5px taller
   // than its slot and the virtualizer spread the rows apart to match. The
@@ -866,9 +915,9 @@ export function HostItem({
   const trayCollapsedClass = `max-h-0 opacity-0 ${isCompact ? "" : "-mt-[3.5px]"}`;
   const trayVisibilityClass =
     alwaysShowTray || actionsOnly
-      ? `overflow-hidden transition-all duration-150 ease-out ${trayOpenState || alwaysShowTray ? "max-h-[130px] opacity-100" : trayCollapsedClass}`
+      ? `overflow-hidden transition-[max-height,opacity,margin] duration-150 ease-out ${trayOpenState || alwaysShowTray ? "max-h-[130px] opacity-100" : trayCollapsedClass}`
       : shouldUseClickTray
-        ? `overflow-hidden transition-all duration-150 ease-out ${trayOpenState ? "max-h-[130px] opacity-100" : trayCollapsedClass}`
+        ? `overflow-hidden transition-[max-height,opacity,margin] duration-150 ease-out ${trayOpenState ? "max-h-[130px] opacity-100" : trayCollapsedClass}`
         : // No transition in hover mode: the row's height is set by the
           // virtualizer and snaps in a single frame, so animating the tray
           // against it leaves the open tray overflowing its shortened row for
@@ -953,7 +1002,7 @@ export function HostItem({
       }}
       style={depthStyle}
       onPointerEnter={() => {
-        preloadTabSurface(defaultAction);
+        if (defaultAction) preloadTabSurface(defaultAction);
         const preferredAction = getPreferredHostAction(
           host.id,
           availableActions,
@@ -965,7 +1014,14 @@ export function HostItem({
       }}
       onMouseEnter={() => onHoverChange?.(true)}
       onMouseLeave={() => onHoverChange?.(false)}
-      className={`group relative flex items-stretch select-none transition-colors hover:bg-muted/50 ${
+      onContextMenu={(event) => {
+        if (selectionMode || arrangeMode) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setContextMenuPosition({ x: event.clientX, y: event.clientY });
+        onMenuOpenChange?.(true);
+      }}
+      className={`group relative flex items-stretch select-none transition-colors motion-interactive hover:bg-muted/50 ${
         canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
       } ${
         selected
@@ -974,6 +1030,13 @@ export function HostItem({
             ? "bg-muted/15"
             : ""
       } ${isMenuOpen ? "bg-muted/50" : ""} ${parentDragOver ? "ring-1 ring-inset ring-accent-brand bg-accent-brand/10" : ""} ${isDragging ? "opacity-40" : ""}`}
+      onMouseDown={(e) => {
+        // Middle-click always opens a new tab, matching browser tab behavior.
+        if (e.button === 1 && !selectionMode && !isTouchOnly) {
+          e.preventDefault();
+          openHostTab(defaultAction, { forceNewTab: true });
+        }
+      }}
       onClick={(e) => {
         if (selectionMode) {
           onToggleSelect?.();
@@ -983,33 +1046,53 @@ export function HostItem({
         // reachable. If the host only exposes a single action, just launch it.
         if (isTouchOnly) {
           e.stopPropagation();
-          const actionCount = getSshActions(host).length;
-          const otherProtocols = [
-            host.enableRdp,
-            host.enableVnc,
-            host.enableTelnet,
-            host.enableArd,
-          ].filter(Boolean).length;
-          if (actionCount + otherProtocols <= 1) {
+          const otherProtocols = enabledHostProtocols(host).length;
+          if (otherProtocols <= 1) {
             openHostTab(defaultAction);
           } else {
             onTrayOpenChange?.(!isTrayOpen);
           }
           return;
         }
+        const forceNewTab = e.ctrlKey || e.metaKey;
+        if (doubleClickOpensNew) {
+          if (singleClickTimer.current) clearTimeout(singleClickTimer.current);
+          singleClickTimer.current = null;
+          if (e.detail > 1) return;
+          if (forceNewTab) {
+            openHostTab(defaultAction, { forceNewTab });
+          } else {
+            singleClickTimer.current = setTimeout(() => {
+              singleClickTimer.current = null;
+              openHostTab(defaultAction);
+            }, DOUBLE_CLICK_WINDOW_MS);
+          }
+          return;
+        }
         if (openOnDoubleClick) return;
-        openHostTab(defaultAction);
+        openHostTab(defaultAction, forceNewTab ? { forceNewTab } : undefined);
       }}
       onDoubleClick={(e) => {
-        if (selectionMode || isTouchOnly || !openOnDoubleClick) return;
+        if (selectionMode || isTouchOnly) return;
+        if (doubleClickOpensNew) {
+          e.stopPropagation();
+          if (singleClickTimer.current) clearTimeout(singleClickTimer.current);
+          singleClickTimer.current = null;
+          if (e.ctrlKey || e.metaKey) return;
+          openHostTab(defaultAction, { forceNewTab: true });
+          return;
+        }
+        if (!openOnDoubleClick) return;
         e.stopPropagation();
-        openHostTab(defaultAction);
+        const forceNewTab = e.ctrlKey || e.metaKey;
+        openHostTab(defaultAction, forceNewTab ? { forceNewTab } : undefined);
       }}
     >
       {/* Status stripe */}
       {showStatusStripes && (
         <div
-          className={`w-[3px] shrink-0 transition-colors ${getStatusClasses(availability, statusScheme, "stripe", statusLoading)}`}
+          data-locking={statusLocking}
+          className={`host-status-stripe w-[3px] shrink-0 transition-colors motion-interactive ${getStatusClasses(availability, statusScheme, "stripe", statusLoading)}`}
         />
       )}
 
@@ -1026,7 +1109,10 @@ export function HostItem({
         className={`flex flex-col flex-1 min-w-0 ${tokens.rowPadding} ${isCompact ? "" : "gap-[3.5px]"}`}
       >
         {/* Name row */}
-        <div data-drag-label className="flex items-center gap-1.5 min-w-0">
+        <div
+          data-drag-label
+          className={`flex items-center gap-1.5 min-w-0 ${isCompact ? "min-h-[19px]" : ""}`}
+        >
           {onToggleExpand && (
             <button
               type="button"
@@ -1063,14 +1149,19 @@ export function HostItem({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="right">
-                {buildStatusTooltip(host, availability)}
+                {buildStatusTooltip(host, availability, t)}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {host.pin && (
+          {rowFields.showPinIcon && host.pin && (
             <Pin className="size-2.5 text-accent-brand/50 shrink-0" />
           )}
-          {host.isShared && (
+          {rowFields.showBadges &&
+            badges.map((badge) => {
+              const Badge = badge.component;
+              return <Badge key={badge.id} host={host} />;
+            })}
+          {rowFields.showSharedBadge && host.isShared && (
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1091,19 +1182,45 @@ export function HostItem({
             </TooltipProvider>
           )}
           {isCompact &&
-            !selectionMode &&
-            !shouldUseClickTray &&
-            !actionsOnly && (
+            showTags &&
+            host.tags?.slice(0, 2).map((tag) => (
               <span
-                className={`text-[11px] text-muted-foreground/70 truncate leading-none ml-auto shrink-0 ${hoverTrayOpen ? "hidden" : ""}`}
+                key={tag}
+                data-testid="host-inline-tag"
+                className="text-[9px] px-1 py-px bg-muted/60 text-muted-foreground/70 lowercase leading-none truncate max-w-[5rem] min-w-0"
               >
-                {host.ip}
+                {tag}
               </span>
-            )}
-          {isCompact && selectionMode && (
-            <span className="text-[11px] text-muted-foreground/70 truncate leading-none ml-auto shrink-0">
-              {host.ip}
+            ))}
+          {isCompact && showTags && (host.tags?.length ?? 0) > 2 && (
+            <span className="text-[9px] text-muted-foreground/40 shrink-0 leading-none">
+              +{host.tags!.length - 2}
             </span>
+          )}
+          {isCompact && rowFields.showAddress && (
+            <span
+              className="text-[11px] text-muted-foreground/70 truncate leading-none ml-auto max-w-[50%] shrink-0"
+              title={host.ip}
+            >
+              {formatHostAddress(host, { ...rowFields, showUsername: false })}
+            </span>
+          )}
+          {isCompact && !selectionMode && (
+            <div
+              data-testid="host-inline-actions"
+              className={`flex items-center gap-[2px] min-w-0 max-w-[60%] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0 ${alwaysShowTray || actionsOnly || trayOpenState || hoverTrayOpen ? "" : "hidden"}`}
+            >
+              {connectionButtons}
+              <div
+                className={
+                  alwaysShowTray || trayOpenState || hoverTrayOpen
+                    ? "flex items-center gap-[2px]"
+                    : "hidden"
+                }
+              >
+                {managementButtons}
+              </div>
+            </div>
           )}
           {!selectionMode && (shouldUseClickTray || actionsOnly) && (
             <button
@@ -1125,15 +1242,14 @@ export function HostItem({
           )}
         </div>
 
-        {/* Address — always visible in comfortable density */}
         {tokens.showAddressRow && (
           <span className="text-[11px] text-muted-foreground/60 truncate leading-none font-mono">
-            {host.username}@{host.ip}
+            {formatHostAddress(host, rowFields)}
           </span>
         )}
 
         {/* Tag pills */}
-        {showTags && host.tags && host.tags.length > 0 && (
+        {showTags && !isCompact && host.tags && host.tags.length > 0 && (
           <div
             className={`flex items-center gap-1 min-w-0 overflow-hidden ${tokens.showTagsRow ? "" : "-mt-0.5"}`}
           >
@@ -1154,77 +1270,84 @@ export function HostItem({
         )}
 
         {/* Connection buttons: permanent in "always"/"actionsOnly" modes, or shown once the chevron opens the tray in click mode */}
-        {!selectionMode &&
+        {!isCompact &&
+          !selectionMode &&
           (alwaysShowTray ||
             actionsOnly ||
             (shouldUseClickTray && isTrayOpen)) && (
-            <div className="flex items-center flex-wrap gap-[3.5px]">
+            <div
+              className={`flex items-center flex-wrap ${isCompact ? "gap-[2px] pt-[3px]" : "gap-[3.5px]"}`}
+            >
               {connectionButtons}
             </div>
           )}
 
-        {/* Action tray — slides open on hover (default) or via chevron in click-tray mode */}
-        <div className={trayVisibilityClass}>
-          {tokens.showResourceRow &&
-            isOnline &&
-            ((host.cpu != null && host.cpu > 0) ||
-              (host.ram != null && host.ram > 0)) && (
-              <div className="flex items-center gap-[10.5px] pt-[5.25px]">
-                {host.cpu != null && host.cpu > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <Cpu className="size-2.5 shrink-0 text-muted-foreground/40" />
-                    <div className="w-9 h-1 bg-muted-foreground/15 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${host.cpu > 80 ? "bg-red-400" : host.cpu > 50 ? "bg-yellow-400" : "bg-accent-brand"}`}
-                        style={{ width: `${host.cpu}%` }}
-                      />
+        {/* Action tray, slides open on hover (default) or via chevron in click-tray mode */}
+        {!isCompact && (
+          <div className={trayVisibilityClass}>
+            {tokens.showResourceRow &&
+              isOnline &&
+              ((host.cpu != null && host.cpu > 0) ||
+                (host.ram != null && host.ram > 0)) && (
+                <div className="flex items-center gap-[10.5px] pt-[5.25px]">
+                  {host.cpu != null && host.cpu > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <Cpu className="size-2.5 shrink-0 text-muted-foreground/40" />
+                      <div className="w-9 h-1 bg-muted-foreground/15 rounded-full overflow-hidden">
+                        <div
+                          className={`motion-meter h-full rounded-full ${host.cpu > 80 ? "bg-red-400" : host.cpu > 50 ? "bg-warning" : "bg-accent-brand"}`}
+                          style={{ width: `${host.cpu}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] tabular-nums text-muted-foreground/50">
+                        {host.cpu}%
+                      </span>
                     </div>
-                    <span className="text-[9px] tabular-nums text-muted-foreground/50">
-                      {host.cpu}%
-                    </span>
-                  </div>
-                )}
-                {host.ram != null && host.ram > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <MemoryStick className="size-2.5 shrink-0 text-muted-foreground/40" />
-                    <div className="w-9 h-1 bg-muted-foreground/15 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${host.ram > 80 ? "bg-red-400" : host.ram > 60 ? "bg-yellow-400" : "bg-accent-brand/60"}`}
-                        style={{ width: `${host.ram}%` }}
-                      />
+                  )}
+                  {host.ram != null && host.ram > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <MemoryStick className="size-2.5 shrink-0 text-muted-foreground/40" />
+                      <div className="w-9 h-1 bg-muted-foreground/15 rounded-full overflow-hidden">
+                        <div
+                          className={`motion-meter h-full rounded-full ${host.ram > 80 ? "bg-red-400" : host.ram > 60 ? "bg-warning" : "bg-accent-brand/60"}`}
+                          style={{ width: `${host.ram}%` }}
+                        />
+                      </div>
+                      <span className="text-[9px] tabular-nums text-muted-foreground/50">
+                        {host.ram}%
+                      </span>
                     </div>
-                    <span className="text-[9px] tabular-nums text-muted-foreground/50">
-                      {host.ram}%
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
 
-          <div
-            className={`flex flex-col gap-0.5 ${alwaysShowTray || actionsOnly || shouldUseClickTray ? "" : "pt-1.5"}`}
-          >
-            {/* Connection buttons — only shown here when not already shown above */}
-            {!alwaysShowTray && !actionsOnly && !shouldUseClickTray && (
-              <div className="flex items-center flex-wrap gap-[1.75px]">
-                {connectionButtons}
-              </div>
-            )}
-
-            {/* Management buttons row */}
             <div
-              className={`flex items-center gap-[1.75px] border-t border-border/30 ${alwaysShowTray || actionsOnly || shouldUseClickTray ? "pt-[5.25px]" : "pt-[3.5px] mt-[1.75px]"}`}
+              className={`flex flex-col gap-0.5 ${alwaysShowTray || actionsOnly || shouldUseClickTray ? "" : "pt-1.5"}`}
             >
-              {managementButtons}
+              {/* Connection buttons, only shown here when not already shown above */}
+              {!alwaysShowTray && !actionsOnly && !shouldUseClickTray && (
+                <div className="flex items-center flex-wrap gap-[1.75px]">
+                  {connectionButtons}
+                </div>
+              )}
+
+              {/* Management buttons row */}
+              <div
+                className={`flex items-center gap-[1.75px] border-t border-border/30 ${alwaysShowTray || actionsOnly || shouldUseClickTray ? "pt-[5.25px]" : "pt-[3.5px] mt-[1.75px]"}`}
+              >
+                {managementButtons}
+              </div>
             </div>
           </div>
-        </div>
-        {canOverrideAuth && (
+        )}
+        {authOverrideProtocol && (
           <HostAuthOverrideModal
-            open={authOverrideOpen}
-            onOpenChange={setAuthOverrideOpen}
+            open
+            onOpenChange={(open) => {
+              if (!open) setAuthOverrideProtocol(null);
+            }}
             host={host}
-            protocol="ssh"
+            protocol={authOverrideProtocol}
           />
         )}
       </div>

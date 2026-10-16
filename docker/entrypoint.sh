@@ -68,34 +68,38 @@ fi
 mkdir -p /tmp/nginx
 envsubst '${PORT} ${SSL_PORT} ${SSL_CERT_PATH} ${SSL_KEY_PATH}' < $NGINX_CONF_SOURCE > /tmp/nginx/nginx.conf
 
+# Which proxies may set the client IP through X-Forwarded-For. Unset keeps
+# the private ranges in the template.
+if [ -n "$TRUSTED_PROXIES" ]; then
+    REAL_IP_LINES=""
+    for proxy in $(echo "$TRUSTED_PROXIES" | tr ',' ' '); do
+        case "$proxy" in
+            *[!0-9a-fA-F:./]*) echo "Ignoring invalid TRUSTED_PROXIES entry: $proxy" ;;
+            *) REAL_IP_LINES="${REAL_IP_LINES}    set_real_ip_from ${proxy};\n" ;;
+        esac
+    done
+    echo "Trusting X-Forwarded-For from: $TRUSTED_PROXIES"
+    awk -v lines="$REAL_IP_LINES" '
+        /# BEGIN TRUSTED_PROXIES/ { printf "%s", lines; skip = 1; next }
+        /# END TRUSTED_PROXIES/ { skip = 0; next }
+        !skip
+    ' /tmp/nginx/nginx.conf > /tmp/nginx/nginx.conf.tmp
+    mv /tmp/nginx/nginx.conf.tmp /tmp/nginx/nginx.conf
+fi
+
 if [ "$ENABLE_SSL" = "true" ] && [ "$PORT" = "$SSL_PORT" ]; then
     echo "HTTP and HTTPS use port $SSL_PORT; disabling the HTTP redirect listener"
     sed -i '/# BEGIN HTTP_REDIRECT_SERVER/,/# END HTTP_REDIRECT_SERVER/d' /tmp/nginx/nginx.conf
 fi
 
-mkdir -p /app/data /app/uploads /app/data/.opk /app/data/acme-webroot/.well-known/acme-challenge
-chmod 755 /app/data /app/uploads /app/data/.opk 2>/dev/null || true
+mkdir -p /app/data /app/uploads
+chmod 755 /app/data /app/uploads 2>/dev/null || true
 
 if [ -w /app/data ]; then
     echo "Data directory is writable"
 else
-    echo "WARNING: Data directory is not writable. OPKSSH may fail."
+    echo "WARNING: Data directory is not writable. Plugins that keep files (OPKSSH, recordings) may fail."
     ls -ld /app/data
-fi
-
-if [ -w /app/data/.opk ]; then
-    echo "OPKSSH directory is writable"
-else
-    echo "WARNING: OPKSSH directory is not writable. OPKSSH authentication will fail."
-    ls -ld /app/data/.opk
-fi
-
-OPKSSH_DIR="${DATA_DIR:-/app/data}/opkssh"
-if [ ! -d "$OPKSSH_DIR" ]; then
-    echo "OPKSSH binary directory not found at $OPKSSH_DIR"
-    echo "OPKSSH will be installed from the bundled copy on first use (falls back to downloading if unavailable)."
-else
-    echo "OPKSSH binary directory found at $OPKSSH_DIR"
 fi
 
 if [ "$ENABLE_SSL" = "true" ]; then
@@ -111,8 +115,16 @@ if [ "$ENABLE_SSL" = "true" ]; then
         if openssl x509 -in /app/data/ssl/termix.crt -checkend 2592000 -noout >/dev/null 2>&1; then
             echo "SSL certificates are valid and will be reused for domain: $DOMAIN"
         else
-            echo "SSL certificate is expired or expiring soon, regenerating..."
-            rm -f /app/data/ssl/termix.crt /app/data/ssl/termix.key
+            SUBJECT=$(openssl x509 -in /app/data/ssl/termix.crt -noout -subject 2>/dev/null | sed 's/^subject=//')
+            ISSUER=$(openssl x509 -in /app/data/ssl/termix.crt -noout -issuer 2>/dev/null | sed 's/^issuer=//')
+            # Only replace our own self-signed certificate. A CA-issued one is
+            # kept until it expires, even when nothing renews it.
+            if [ -n "$SUBJECT" ] && [ "$SUBJECT" = "$ISSUER" ]; then
+                echo "Self-signed SSL certificate is expired or expiring soon, regenerating..."
+                rm -f /app/data/ssl/termix.crt /app/data/ssl/termix.key
+            else
+                echo "WARNING: SSL certificate expires within 30 days and was not issued by Termix. Renew it."
+            fi
         fi
     else
         echo "SSL certificates not found, will generate new ones..."
@@ -172,7 +184,14 @@ if [ -n "$BASE_PATH" ]; then
     echo "Injecting BASE_PATH: $BASE_PATH"
     # Strip trailing slash for use as a path prefix
     CLEAN_BASE_PATH="${BASE_PATH%/}"
-    find /app/html -name "index.html" -exec sed -i "s|window.__TERMIX_BASE_PATH__ = \"\"|window.__TERMIX_BASE_PATH__ = \"$CLEAN_BASE_PATH\"|g" {} \;
+    case "$CLEAN_BASE_PATH" in
+        /*) ;;
+        *) echo "BASE_PATH must start with /" >&2; exit 1 ;;
+    esac
+    case "$CLEAN_BASE_PATH" in
+        *[!A-Za-z0-9_./~-]*) echo "BASE_PATH contains unsupported characters" >&2; exit 1 ;;
+    esac
+    find /app/html -name "index.html" -exec sed -i "s|name=\"termix-base-path\" content=\"\"|name=\"termix-base-path\" content=\"$CLEAN_BASE_PATH\"|g" {} \;
     # Patch sw.js static asset paths with the base path prefix
     find /app/html -name "sw.js" -exec sed -i "s|__TERMIX_SW_BASE_PATH__|$CLEAN_BASE_PATH|g" {} \;
 else

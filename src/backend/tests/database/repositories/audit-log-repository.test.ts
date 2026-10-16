@@ -77,6 +77,34 @@ describe("AuditLogRepository", () => {
     ]);
   });
 
+  it("stores entries with no acting user, and refuses ids that are not users", async () => {
+    const repo = await createRepository();
+
+    await repo.create({
+      userId: null,
+      username: "plugin:example",
+      action: "plugin_http_public_routes",
+      resourceType: "plugin",
+      success: true,
+    });
+    await expect(
+      repo.create({
+        userId: "system",
+        username: "system",
+        action: "cleanup",
+        resourceType: "plugin",
+        success: true,
+      }),
+    ).rejects.toThrow();
+
+    const page = await repo.listPage({ filters: {}, limit: 10, offset: 0 });
+    expect(page.logs).toHaveLength(1);
+    expect(page.logs[0]).toMatchObject({
+      userId: null,
+      username: "plugin:example",
+    });
+  });
+
   it("deletes logs by user id and only runs write hook for deleted rows", async () => {
     let writeCount = 0;
     const repo = await createRepository(() => {
@@ -112,6 +140,42 @@ describe("AuditLogRepository", () => {
         })
       ).logs.map((log) => log.userId),
     ).toEqual(["user-2"]);
+  });
+
+  it("clears only background routine plugin entries", async () => {
+    let writeCount = 0;
+    const repo = await createRepository(() => {
+      writeCount += 1;
+    });
+    const entry = (userId: string | null, action: string) =>
+      repo.create({
+        userId,
+        username: "plugin:host-metrics",
+        action,
+        resourceType: "plugin",
+        success: true,
+      });
+
+    await entry(null, "plugin_db_client");
+    await entry(null, "plugin_kv_get");
+    await entry(null, "plugin_kv_set");
+    await entry("user-1", "plugin_db_client");
+    await entry(null, "plugin_as_user");
+    writeCount = 0;
+
+    expect(await repo.deleteRoutinePluginNoise()).toBe(2);
+    expect(writeCount).toBe(1);
+    const left = (
+      await repo.listPage({ filters: {}, limit: 10, offset: 0 })
+    ).logs.map((log) => `${log.userId}:${log.action}`);
+    expect(left.sort()).toEqual([
+      "null:plugin_as_user",
+      "null:plugin_kv_set",
+      "user-1:plugin_db_client",
+    ]);
+
+    expect(await repo.deleteRoutinePluginNoise()).toBe(0);
+    expect(writeCount).toBe(1);
   });
 
   it("keeps entries when their user is deleted, detaching instead of removing", async () => {

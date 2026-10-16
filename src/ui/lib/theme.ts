@@ -1,7 +1,7 @@
 import type {
   DashboardCardConfig,
   FontSizeId,
-  SplitMode,
+  UiFontId,
 } from "@/types/ui-types";
 
 export const DASHBOARD_CARDS: DashboardCardConfig[] = [
@@ -14,7 +14,7 @@ export const DASHBOARD_CARDS: DashboardCardConfig[] = [
   {
     id: "counters_bar",
     label: "Counters Bar",
-    description: "Total hosts, credentials, and tunnels count",
+    description: "Host and credential totals, plus any counters plugins add",
     defaultEnabled: true,
   },
   {
@@ -34,24 +34,6 @@ export const DASHBOARD_CARDS: DashboardCardConfig[] = [
     label: "Recent Activity",
     description: "Feed of recent connection events",
     defaultEnabled: true,
-  },
-  {
-    id: "network_graph",
-    label: "Network Graph",
-    description: "Visual map of host network topology",
-    defaultEnabled: false,
-  },
-  {
-    id: "service_links",
-    label: "Service Links",
-    description: "Clickable buttons linking to services on your servers",
-    defaultEnabled: false,
-  },
-  {
-    id: "homepage_preview",
-    label: "Homepage",
-    description: "Scaled preview of your Homepage canvas",
-    defaultEnabled: false,
   },
 ];
 
@@ -82,11 +64,63 @@ export const FONT_SIZES: { id: FontSizeId; label: string }[] = [
   { id: "xl", label: "XL" },
 ];
 
+/** The root font size of each interface size, relative to Normal. */
+export const FONT_SIZE_SCALE: Record<FontSizeId, number> = {
+  xs: 12 / 14,
+  sm: 13 / 14,
+  md: 1,
+  lg: 17 / 14,
+  xl: 20 / 14,
+};
+
 export function applyFontSize(id: FontSizeId) {
   const root = document.documentElement;
+  const size = id in FONT_SIZE_SCALE ? id : "md";
   root.classList.remove("fs-xs", "fs-sm", "fs-md", "fs-lg", "fs-xl");
-  root.classList.add(`fs-${id}`);
-  localStorage.setItem("termix-font-size", id);
+  root.classList.add(`fs-${size}`);
+  localStorage.setItem("termix-font-size", size);
+
+  // Every length is in rem, so the root size scales the whole interface. An
+  // earlier desktop build zoomed the window instead; undo that if it did.
+  (
+    window as Window & {
+      electronAPI?: { setZoomFactor?: (factor: number) => void };
+    }
+  ).electronAPI?.setZoomFactor?.(1);
+}
+
+export const UI_FONTS: { id: UiFontId; label: string; family: string }[] = [
+  {
+    id: "jetbrains-mono",
+    label: "JetBrains Mono",
+    family: '"JetBrains Mono Variable", monospace',
+  },
+  {
+    id: "system-sans",
+    label: "System Sans",
+    family: "ui-sans-serif, system-ui, sans-serif",
+  },
+  {
+    id: "fira-code",
+    label: "Fira Code",
+    family: '"Fira Code", monospace',
+  },
+  {
+    id: "source-code-pro",
+    label: "Source Code Pro",
+    family: '"Source Code Pro", monospace',
+  },
+  {
+    id: "caskaydia-cove",
+    label: "Caskaydia Cove",
+    family: '"Caskaydia Cove Nerd Font Mono", monospace',
+  },
+];
+
+export function applyUiFont(id: UiFontId) {
+  const font = UI_FONTS.find((candidate) => candidate.id === id) ?? UI_FONTS[0];
+  document.documentElement.style.setProperty("--font-ui", font.family);
+  localStorage.setItem("termix-ui-font", font.id);
 }
 
 export const FOLDER_COLORS = [
@@ -99,25 +133,3 @@ export const FOLDER_COLORS = [
   "#ec4899",
   "#6b7280",
 ];
-
-export const SPLIT_MODES: { id: SplitMode; label: string }[] = [
-  { id: "none", label: "None" },
-  { id: "2-way", label: "2-Way" },
-  { id: "2-way-horizontal", label: "2-Way (H)" },
-  { id: "3-way", label: "3-Way (V)" },
-  { id: "3-way-horizontal", label: "3-Way (H)" },
-  { id: "4-way", label: "4-Way" },
-  { id: "5-way", label: "5-Way" },
-  { id: "6-way", label: "6-Way" },
-];
-
-export const PANE_COUNTS: Record<SplitMode, number> = {
-  none: 0,
-  "2-way": 2,
-  "2-way-horizontal": 2,
-  "3-way": 3,
-  "3-way-horizontal": 3,
-  "4-way": 4,
-  "5-way": 5,
-  "6-way": 6,
-};

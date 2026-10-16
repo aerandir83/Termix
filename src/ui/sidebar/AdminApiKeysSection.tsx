@@ -1,3 +1,4 @@
+import { useConfirm } from "@/components/surface/surface-scope";
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -8,6 +9,8 @@ import { Copy, Network, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AccordionSection } from "./AdminSettingsShared";
 import type { AdminUser } from "./AdminManagementSections";
+import { Select2 } from "@/components/select2";
+import { DocsLink } from "@/components/docs-link";
 
 type AdminApiKeysSectionProps = {
   open: boolean;
@@ -51,6 +54,7 @@ export function AdminApiKeysSection({
   newKeyLoading,
 }: AdminApiKeysSectionProps) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
 
   return (
     <AccordionSection
@@ -63,24 +67,10 @@ export function AdminApiKeysSection({
         <div className="flex items-center justify-between py-2 border-b border-border">
           <span className="text-[10px] text-muted-foreground">
             {t("admin.apiKeysCount", { count: apiKeys.length })}{" "}
-            <a
-              href="https://docs.termix.site/features/api/api-keys"
-              target="_blank"
-              rel="noreferrer"
-              className="text-accent-brand hover:underline"
-            >
-              {t("admin.apiKeysDocsLink")}
-            </a>
+            <DocsLink core="apiKeys">{t("admin.apiKeysDocsLink")}</DocsLink>
             <br />
             {t("admin.apiKeysCliHint")}{" "}
-            <a
-              href="https://docs.termix.site/cli"
-              target="_blank"
-              rel="noreferrer"
-              className="text-accent-brand hover:underline"
-            >
-              {t("admin.apiKeysCliLink")}
-            </a>
+            <DocsLink core="cli">{t("admin.apiKeysCliLink")}</DocsLink>
           </span>
           <div className="flex items-center gap-1">
             <Button
@@ -149,7 +139,7 @@ export function AdminApiKeysSection({
                     <span className="text-accent-brand">*</span>
                   </label>
                   <Input
-                    placeholder="e.g., CI Pipeline"
+                    placeholder={t("placeholders.apiKeyName")}
                     value={newKeyName}
                     onChange={(e) => setNewKeyName(e.target.value)}
                     className="text-xs"
@@ -160,7 +150,7 @@ export function AdminApiKeysSection({
                     {t("admin.apiKeyUser")}{" "}
                     <span className="text-accent-brand">*</span>
                   </label>
-                  <select
+                  <Select2
                     className="px-2 py-1.5 text-xs bg-background border border-border text-foreground outline-none"
                     value={newKeyUserId}
                     onChange={(e) => setNewKeyUserId(e.target.value)}
@@ -171,7 +161,7 @@ export function AdminApiKeysSection({
                         {u.username}
                       </option>
                     ))}
-                  </select>
+                  </Select2>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
@@ -229,11 +219,13 @@ export function AdminApiKeysSection({
               <span className="text-[10px] font-mono text-muted-foreground truncate">
                 {key.tokenPrefix}…
               </span>
-              <span className="text-[10px] text-muted-foreground">
-                {key.createdAt.split("T")[0]} ·{" "}
-                {key.expiresAt
-                  ? key.expiresAt.split("T")[0]
-                  : t("admin.apiKeyNoExpiry")}
+              <span className="flex gap-2.5 text-[10px] text-muted-foreground">
+                <span>{key.createdAt.split("T")[0]}</span>
+                <span>
+                  {key.expiresAt
+                    ? key.expiresAt.split("T")[0]
+                    : t("admin.apiKeyNoExpiry")}
+                </span>
               </span>
             </div>
             <Button
@@ -241,6 +233,11 @@ export function AdminApiKeysSection({
               size="icon"
               className="size-6 text-muted-foreground hover:text-destructive shrink-0"
               onClick={async () => {
+                const ok = await confirm({
+                  title: t("admin.revokeKeyConfirm", { name: key.name }),
+                  confirmLabel: t("admin.revokeKey"),
+                });
+                if (!ok) return;
                 try {
                   await deleteApiKey(key.id);
                   setApiKeys((prev) => prev.filter((k) => k.id !== key.id));

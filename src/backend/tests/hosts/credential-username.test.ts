@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   pickResolvedUsername,
   pickResolvedPassword,
-  expandOidcUsername,
+  expandExternalUsername,
 } from "../../hosts/credential-username.js";
 
 describe("pickResolvedUsername", () => {
@@ -52,111 +52,63 @@ describe("pickResolvedPassword", () => {
   });
 });
 
-describe("expandOidcUsername", () => {
+function identities(rows: Array<{ id: number; subject: string }>) {
+  vi.doMock("../../database/repositories/factory.js", () => ({
+    createCurrentUserAuthRepository: () => ({
+      listIdentitiesForUser: async () => rows,
+    }),
+  }));
+}
+
+describe("expandExternalUsername", () => {
   beforeEach(() => {
     vi.resetModules();
   });
 
   it("returns the username unchanged when it has no placeholder", async () => {
-    expect(await expandOidcUsername("alice", "user-1")).toBe("alice");
-    expect(await expandOidcUsername(undefined, "user-1")).toBeUndefined();
+    expect(await expandExternalUsername("alice", "user-1")).toBe("alice");
+    expect(await expandExternalUsername(undefined, "user-1")).toBeUndefined();
   });
 
-  it("expands the placeholder with the user's OIDC identifier", async () => {
-    vi.doMock("../../database/repositories/factory.js", () => ({
-      createCurrentUserRepository: () => ({
-        findById: async () => ({ oidcIdentifier: "jdoe" }),
-      }),
-    }));
-
-    const { expandOidcUsername: expand } =
+  it("expands the placeholder with the subject of the user's first identity", async () => {
+    identities([
+      { id: 4, subject: "later" },
+      { id: 2, subject: "jdoe" },
+    ]);
+    const { expandExternalUsername: expand } =
       await import("../../hosts/credential-username.js");
-    expect(await expand("$oidc.preferred_username", "user-1")).toBe("jdoe");
+    expect(await expand("$external.username", "user-1")).toBe("jdoe");
+    expect(await expand("$external.username-x", "user-1")).toBe("jdoe-x");
   });
 
-  it("leaves the placeholder as-is when the user has no OIDC identifier", async () => {
-    vi.doMock("../../database/repositories/factory.js", () => ({
-      createCurrentUserRepository: () => ({
-        findById: async () => ({ oidcIdentifier: null }),
-      }),
-    }));
-
-    const { expandOidcUsername: expand } =
+  it("no longer reads the 2.8 spelling", async () => {
+    identities([{ id: 1, subject: "jdoe" }]);
+    const { expandExternalUsername: expand } =
       await import("../../hosts/credential-username.js");
     expect(await expand("$oidc.preferred_username", "user-1")).toBe(
       "$oidc.preferred_username",
+    );
+  });
+
+  it("leaves the placeholder as-is when the user has no external sign-in", async () => {
+    identities([]);
+    const { expandExternalUsername: expand } =
+      await import("../../hosts/credential-username.js");
+    expect(await expand("$external.username", "user-1")).toBe(
+      "$external.username",
     );
   });
 
   it("returns the username unchanged when the DB lookup throws", async () => {
     vi.doMock("../../database/repositories/factory.js", () => ({
-      createCurrentUserRepository: () => {
+      createCurrentUserAuthRepository: () => {
         throw new Error("DB unavailable");
       },
     }));
-
-    const { expandOidcUsername: expand } =
+    const { expandExternalUsername: expand } =
       await import("../../hosts/credential-username.js");
-    expect(await expand("$oidc.preferred_username", "user-1")).toBe(
-      "$oidc.preferred_username",
-    );
-  });
-
-  it("strips the ldap:{providerId}: prefix for genuine LDAP users", async () => {
-    vi.doMock("../../database/repositories/factory.js", () => ({
-      createCurrentUserRepository: () => ({
-        findById: async () => ({
-          oidcIdentifier: "ldap:1:jdoe",
-          ssoProviderId: 1,
-        }),
-      }),
-      createCurrentSsoProviderRepository: () => ({
-        findById: async () => ({ type: "ldap" }),
-      }),
-    }));
-
-    const { expandOidcUsername: expand } =
-      await import("../../hosts/credential-username.js");
-    expect(await expand("$oidc.preferred_username", "user-1")).toBe("jdoe");
-  });
-
-  it("does not strip a spoofed ldap: identifier from a non-LDAP provider", async () => {
-    vi.doMock("../../database/repositories/factory.js", () => ({
-      createCurrentUserRepository: () => ({
-        findById: async () => ({
-          oidcIdentifier: "ldap:1:admin",
-          ssoProviderId: 1,
-        }),
-      }),
-      createCurrentSsoProviderRepository: () => ({
-        findById: async () => ({ type: "oidc" }),
-      }),
-    }));
-
-    const { expandOidcUsername: expand } =
-      await import("../../hosts/credential-username.js");
-    expect(await expand("$oidc.preferred_username", "user-1")).toBe(
-      "ldap:1:admin",
-    );
-  });
-
-  it("does not strip when the embedded provider id is not the user's provider", async () => {
-    vi.doMock("../../database/repositories/factory.js", () => ({
-      createCurrentUserRepository: () => ({
-        findById: async () => ({
-          oidcIdentifier: "ldap:1:admin",
-          ssoProviderId: 5,
-        }),
-      }),
-      createCurrentSsoProviderRepository: () => ({
-        findById: async () => ({ type: "ldap" }),
-      }),
-    }));
-
-    const { expandOidcUsername: expand } =
-      await import("../../hosts/credential-username.js");
-    expect(await expand("$oidc.preferred_username", "user-1")).toBe(
-      "ldap:1:admin",
+    expect(await expand("$external.username", "user-1")).toBe(
+      "$external.username",
     );
   });
 });

@@ -1,0 +1,281 @@
+/**
+ * Linking an external (SSO or LDAP) account to a password account and back.
+ * The linked account keeps its sign-in identities, so it signs in through the
+ * same provider afterwards; unlinking drops them.
+ */
+
+import http from "node:http";
+import type { AddressInfo } from "node:net";
+import express from "express";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+interface User {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  passwordHash: string;
+}
+
+const h = vi.hoisted(() => ({
+  users: new Map<string, User>(),
+  identities: [] as Array<{
+    userId: string;
+    providerId: string;
+    subject: string;
+  }>,
+  deleted: [] as string[],
+  revoked: [] as string[],
+}));
+
+function withIdentities(user: User | undefined) {
+  if (!user) return null;
+  return {
+    ...user,
+    isExternal: h.identities.some((row) => row.userId === user.id),
+  };
+}
+
+vi.mock("../../../database/repositories/factory.js", () => ({
+  createCurrentUserRepository: () => ({
+    findById: async (id: string) => withIdentities(h.users.get(id)),
+    findByUsername: async (username: string) =>
+      withIdentities(
+        [...h.users.values()].find((user) => user.username === username),
+      ),
+  }),
+  createCurrentUserAuthRepository: () => ({
+    listIdentitiesForUser: async (userId: string) =>
+      h.identities.filter((row) => row.userId === userId),
+    moveIdentities: async (from: string, to: string) => {
+      for (const row of h.identities) if (row.userId === from) row.userId = to;
+    },
+    unlinkIdentitiesForUser: async (userId: string) => {
+      h.identities = h.identities.filter((row) => row.userId !== userId);
+    },
+  }),
+}));
+vi.mock("../../../database/routes/delete-user-data.js", () => ({
+  deleteUserAndRelatedData: async (userId: string) => {
+    h.deleted.push(userId);
+    h.users.delete(userId);
+  },
+}));
+vi.mock("../../../utils/database-save-trigger.js", () => ({
+  DatabaseSaveTrigger: { forceSave: vi.fn(async () => {}) },
+}));
+vi.mock("../../../utils/auth-manager.js", () => ({ AuthManager: {} }));
+vi.mock("../../../utils/logger.js", () => {
+  const log = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+  };
+  return { authLogger: log };
+});
+
+const { registerUserExternalAccountRoutes } =
+  await import("../../../database/routes/user-external-account-routes.js");
+
+let server: http.Server;
+let base: string;
+
+beforeEach(async () => {
+  h.users = new Map([
+    [
+      "admin",
+      {
+        id: "admin",
+        username: "admin",
+        isAdmin: true,
+        passwordHash: "x",
+      },
+    ],
+    [
+      "sso",
+      {
+        id: "sso",
+        username: "alice-sso",
+        isAdmin: false,
+        passwordHash: "",
+      },
+    ],
+    [
+      "local",
+      {
+        id: "local",
+        username: "alice",
+        isAdmin: false,
+        passwordHash: "hash",
+      },
+    ],
+  ]);
+  h.identities = [{ userId: "sso", providerId: "ldap:4", subject: "alice" }];
+  h.deleted = [];
+  h.revoked = [];
+
+  const router = express.Router();
+  router.use(express.json());
+  registerUserExternalAccountRoutes(router, {
+    authenticateJWT: (req, _res, next) => {
+      (req as unknown as { userId: string }).userId =
+        req.header("x-user") ?? "";
+      next();
+    },
+    authManager: {
+      revokeAllUserSessions: async (userId: string) => {
+        h.revoked.push(userId);
+      },
+      logoutUser: () => {},
+    } as never,
+  });
+  const app = express();
+  app.use("/users", router);
+  server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+});
+
+afterEach(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+function post(path: string, body: unknown, user = "admin") {
+  return fetch(`${base}/users${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-user": user },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("linking an external account to a password account", () => {
+  it("moves the identities, then removes the external account", async () => {
+    const response = await post("/link-external-to-password", {
+      externalUserId: "sso",
+      targetUsername: "alice",
+    });
+    expect(response.status).toBe(200);
+    expect(h.identities).toEqual([
+      { userId: "local", providerId: "ldap:4", subject: "alice" },
+    ]);
+    expect(h.revoked).toEqual(["sso"]);
+    expect(h.deleted).toEqual(["sso"]);
+  });
+
+  it("no longer takes the 2.8 path and field name", async () => {
+    const response = await post("/link-oidc-to-password", {
+      oidcUserId: "sso",
+      targetUsername: "alice",
+    });
+    expect(response.status).toBe(404);
+    expect(h.identities[0].userId).toBe("sso");
+  });
+
+  it("refuses a target that already signs in externally", async () => {
+    h.identities.push({ userId: "local", providerId: "ldap:4", subject: "x" });
+    const response = await post("/link-external-to-password", {
+      externalUserId: "sso",
+      targetUsername: "alice",
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("is for admins only", async () => {
+    const response = await post(
+      "/link-external-to-password",
+      { externalUserId: "sso", targetUsername: "alice" },
+      "local",
+    );
+    expect(response.status).toBe(403);
+    expect(h.identities[0].userId).toBe("sso");
+  });
+
+  it("refuses a target that is not a password account", async () => {
+    const response = await post("/link-external-to-password", {
+      externalUserId: "sso",
+      targetUsername: "alice-sso",
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("merges a 2.9.0 duplicate back into its 2.8 SSO account", async () => {
+    h.users.set("orig", {
+      id: "orig",
+      username: "bob",
+      isAdmin: false,
+      passwordHash: "",
+    });
+    h.users.set("dup", {
+      id: "dup",
+      username: "bob-1",
+      isAdmin: false,
+      passwordHash: "",
+    });
+    h.identities.push(
+      { userId: "orig", providerId: "legacy-oidc", subject: "sub-9" },
+      { userId: "dup", providerId: "1", subject: "sub-9" },
+    );
+
+    const response = await post("/link-external-to-password", {
+      externalUserId: "dup",
+      targetUsername: "bob",
+    });
+
+    expect(response.status).toBe(200);
+    expect(h.deleted).toEqual(["dup"]);
+    expect(
+      h.identities
+        .filter((row) => row.userId === "orig")
+        .map((row) => row.providerId),
+    ).toEqual(["legacy-oidc", "1"]);
+  });
+
+  it("does not treat an unrelated SSO account as a duplicate target", async () => {
+    h.users.set("other", {
+      id: "other",
+      username: "carol",
+      isAdmin: false,
+      passwordHash: "",
+    });
+    h.identities.push({
+      userId: "other",
+      providerId: "legacy-oidc",
+      subject: "sub-x",
+    });
+
+    const response = await post("/link-external-to-password", {
+      externalUserId: "sso",
+      targetUsername: "carol",
+    });
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("unlinking", () => {
+  it("drops the identities so the provider no longer signs in as the user", async () => {
+    await post("/link-external-to-password", {
+      externalUserId: "sso",
+      targetUsername: "alice",
+    });
+    const response = await post("/unlink-external-from-password", {
+      userId: "local",
+    });
+    expect(response.status).toBe(200);
+    expect(h.identities).toEqual([]);
+  });
+
+  it("no longer takes the 2.8 path", async () => {
+    const response = await post("/unlink-oidc-from-password", {
+      userId: "local",
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("refuses to leave an account with no way in", async () => {
+    const response = await post("/unlink-external-from-password", {
+      userId: "sso",
+    });
+    expect(response.status).toBe(400);
+    expect(h.identities).toHaveLength(1);
+  });
+});

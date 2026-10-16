@@ -1,41 +1,25 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import type { RequestHandler, Router } from "express";
-import { restartGuacServer } from "../../hosts/guacamole/guacamole-server.js";
 import {
   authLogger,
   getGlobalLogLevel,
   setGlobalLogLevel,
 } from "../../utils/logger.js";
 import { logAudit, getRequestMeta } from "../../utils/audit-logger.js";
-import { getTelemetryEnvOverride } from "../../utils/analytics.js";
-import { AI_PRIVATE_ALLOWLIST_KEY, parseAllowlist } from "../../ai/egress.js";
+import {
+  AUDIT_FORWARD_TOKEN_SETTING,
+  AUDIT_FORWARD_URL_ENV,
+  AUDIT_FORWARD_URL_SETTING,
+} from "../../utils/audit-forwarder.js";
+import {
+  NOTIFICATION_PRIVATE_ALLOWLIST_KEY,
+  parseNotificationAllowlist,
+} from "../../utils/notification-egress.js";
 import {
   createCurrentSettingsRepository,
   createCurrentUserRepository,
 } from "../repositories/factory.js";
 import type { UserRecord } from "../repositories/user-repository.js";
-
-function getDefaultGuacUrl(): string {
-  return `${process.env.GUACD_HOST || "localhost"}:${process.env.GUACD_PORT || "4822"}`;
-}
-
-export type HostDefaults = {
-  useSocks5?: boolean;
-  socks5Host?: string;
-  socks5Port?: number;
-  socks5Username?: string;
-  socks5Password?: string;
-  credentialId?: number | null;
-  metricsEnabled?: boolean;
-  statusCheckEnabled?: boolean;
-  fontSize?: number;
-  fontFamily?: string;
-  theme?: string;
-  cursorStyle?: string;
-  cursorBlink?: boolean;
-  enableSessionLogging?: boolean;
-  enableCommandHistory?: boolean;
-};
 
 async function getAdminActor(
   userId: string | undefined,
@@ -49,119 +33,6 @@ export function registerUserSettingsRoutes(
   router: Router,
   authenticateJWT: RequestHandler,
 ): void {
-  /**
-   * @openapi
-   * /users/guacamole-settings:
-   *   get:
-   *     summary: Get Guacamole settings
-   *     description: Returns current guacd enabled status and host:port URL. No authentication required.
-   *     tags:
-   *       - Users
-   *     responses:
-   *       200:
-   *         description: Guacamole settings.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 enabled:
-   *                   type: boolean
-   *                 url:
-   *                   type: string
-   *       500:
-   *         description: Failed to get guacamole settings.
-   */
-  router.get("/guacamole-settings", authenticateJWT, async (_req, res) => {
-    try {
-      const settings = createCurrentSettingsRepository();
-      const enabled = await settings.getBoolean("guac_enabled", true);
-      const url = await settings.get("guac_url");
-      res.json({
-        enabled,
-        url: url ?? getDefaultGuacUrl(),
-      });
-    } catch (err) {
-      authLogger.error("Failed to get guacamole settings", err);
-      res.status(500).json({ error: "Failed to get guacamole settings" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/guacamole-settings:
-   *   patch:
-   *     summary: Update Guacamole settings
-   *     description: Admin-only. Updates guacd enabled status and/or host:port URL.
-   *     tags:
-   *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               enabled:
-   *                 type: boolean
-   *               url:
-   *                 type: string
-   *     responses:
-   *       200:
-   *         description: Guacamole settings updated.
-   *       403:
-   *         description: Not authorized.
-   *       500:
-   *         description: Failed to update guacamole settings.
-   */
-  router.patch("/guacamole-settings", authenticateJWT, async (req, res) => {
-    const userId = (req as AuthenticatedRequest).userId;
-    try {
-      const actor = await getAdminActor(userId);
-      if (!actor) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-      const { enabled, url } = req.body;
-      const settings = createCurrentSettingsRepository();
-      if (typeof enabled === "boolean") {
-        await settings.set("guac_enabled", enabled ? "true" : "false");
-      }
-      if (typeof url === "string") {
-        await settings.set("guac_url", url);
-        try {
-          await restartGuacServer();
-        } catch (err) {
-          authLogger.error(
-            "Failed to restart guac server after URL update",
-            err,
-          );
-        }
-      }
-      const currentEnabled = await settings.getBoolean("guac_enabled", true);
-      const currentUrl = await settings.get("guac_url");
-
-      const { ipAddress, userAgent } = getRequestMeta(req);
-      await logAudit({
-        userId,
-        username: actor.username ?? userId,
-        action: "update_guacamole_settings",
-        resourceType: "setting",
-        details: JSON.stringify({ enabled, url }),
-        ipAddress,
-        userAgent,
-        success: true,
-      });
-
-      res.json({
-        enabled: currentEnabled,
-        url: currentUrl ?? getDefaultGuacUrl(),
-      });
-    } catch (err) {
-      authLogger.error("Failed to update guacamole settings", err);
-      res.status(500).json({ error: "Failed to update guacamole settings" });
-    }
-  });
-
   /**
    * @openapi
    * /users/log-level:
@@ -323,54 +194,46 @@ export function registerUserSettingsRoutes(
 
   /**
    * @openapi
-   * /users/tailscale-settings:
+   * /users/audit-forwarding:
    *   get:
-   *     summary: Get Tailscale settings
-   *     description: Returns whether a Tailscale API key is configured (value is masked).
+   *     summary: Get audit log forwarding settings (admin only)
    *     tags:
    *       - Users
    *     responses:
    *       200:
-   *         description: Tailscale settings.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 apiKey:
-   *                   type: string
-   *                   description: Masked API key or empty string if not set.
-   *                 hasApiKey:
-   *                   type: boolean
-   *                 apiBaseUrl:
-   *                   type: string
-   *                   description: Custom control-plane API base URL (e.g. a Headscale instance), or empty string for the Tailscale default.
+   *         description: Forwarding target. The token itself is never returned.
    */
-  router.get("/tailscale-settings", authenticateJWT, async (_req, res) => {
+  router.get("/audit-forwarding", authenticateJWT, async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
     try {
-      const settingsRepo = createCurrentSettingsRepository();
-      const apiKey = (await settingsRepo.get("tailscale_api_key")) ?? "";
-      const apiBaseUrl =
-        (await settingsRepo.get("tailscale_api_base_url")) ?? "";
+      if (!(await getAdminActor(userId))) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
+      const settingsRepository = createCurrentSettingsRepository();
+      const url =
+        (await settingsRepository.get(AUDIT_FORWARD_URL_SETTING)) ?? "";
+      const hasToken = !!(await settingsRepository.get(
+        AUDIT_FORWARD_TOKEN_SETTING,
+      ));
       res.json({
-        apiKey: apiKey
-          ? `${apiKey.slice(0, 6)}${"*".repeat(Math.max(0, apiKey.length - 6))}`
-          : "",
-        hasApiKey: !!apiKey,
-        apiBaseUrl,
+        url,
+        hasToken,
+        envConfigured: !!process.env[AUDIT_FORWARD_URL_ENV]?.trim(),
       });
     } catch (err) {
-      authLogger.error("Failed to get Tailscale settings", err);
-      res.status(500).json({ error: "Failed to get Tailscale settings" });
+      authLogger.error("Failed to get audit forwarding settings", err);
+      res
+        .status(500)
+        .json({ error: "Failed to get audit forwarding settings" });
     }
   });
 
   /**
    * @openapi
-   * /users/tailscale-settings:
+   * /users/audit-forwarding:
    *   patch:
-   *     summary: Update Tailscale settings (admin only)
-   *     description: Saves or clears the Tailscale API key used for device discovery.
+   *     summary: Update audit log forwarding settings (admin only)
+   *     description: Sets the collector URL audit entries are shipped to. An empty URL disables forwarding and clears the stored token. Omitting token keeps the stored one.
    *     tags:
    *       - Users
    *     requestBody:
@@ -380,657 +243,171 @@ export function registerUserSettingsRoutes(
    *           schema:
    *             type: object
    *             properties:
-   *               apiKey:
+   *               url:
    *                 type: string
-   *               apiBaseUrl:
+   *               token:
    *                 type: string
-   *                 description: Optional custom control-plane API base URL (e.g. a Headscale instance). Leave empty to use the Tailscale default.
    *     responses:
    *       200:
-   *         description: Tailscale settings updated.
+   *         description: Setting updated.
    *       403:
    *         description: Not authorized.
-   *       500:
-   *         description: Failed to update Tailscale settings.
    */
-  router.patch("/tailscale-settings", authenticateJWT, async (req, res) => {
+  router.patch("/audit-forwarding", authenticateJWT, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     try {
       const actor = await getAdminActor(userId);
       if (!actor) {
         return res.status(403).json({ error: "Not authorized" });
       }
-      const { apiKey, apiBaseUrl } = req.body;
-      if (typeof apiKey !== "string") {
-        return res.status(400).json({ error: "apiKey must be a string" });
+      const { url, token } = req.body ?? {};
+      if (
+        typeof url !== "string" ||
+        (token !== undefined && typeof token !== "string")
+      ) {
+        return res.status(400).json({ error: "url must be a string" });
       }
-      if (apiBaseUrl !== undefined && typeof apiBaseUrl !== "string") {
-        return res.status(400).json({ error: "apiBaseUrl must be a string" });
+      const trimmedUrl = url.trim();
+      if (trimmedUrl && !/^https?:\/\//i.test(trimmedUrl)) {
+        return res.status(400).json({ error: "url must be http(s)" });
       }
-      const settingsRepo = createCurrentSettingsRepository();
-      await settingsRepo.set("tailscale_api_key", apiKey);
-      if (apiBaseUrl !== undefined) {
-        await settingsRepo.set(
-          "tailscale_api_base_url",
-          apiBaseUrl.trim().replace(/\/+$/, ""),
-        );
+
+      const settingsRepository = createCurrentSettingsRepository();
+      if (!trimmedUrl) {
+        await settingsRepository.delete(AUDIT_FORWARD_URL_SETTING);
+        await settingsRepository.delete(AUDIT_FORWARD_TOKEN_SETTING);
+      } else {
+        await settingsRepository.set(AUDIT_FORWARD_URL_SETTING, trimmedUrl);
+        if (token !== undefined) {
+          if (token.trim()) {
+            await settingsRepository.set(
+              AUDIT_FORWARD_TOKEN_SETTING,
+              token.trim(),
+            );
+          } else {
+            await settingsRepository.delete(AUDIT_FORWARD_TOKEN_SETTING);
+          }
+        }
       }
 
       const { ipAddress, userAgent } = getRequestMeta(req);
       await logAudit({
         userId,
         username: actor.username ?? userId,
-        action: "update_tailscale_settings",
+        action: "update_audit_forwarding",
         resourceType: "setting",
-        details: JSON.stringify({ hasApiKey: !!apiKey }),
+        details: JSON.stringify({ enabled: !!trimmedUrl }),
         ipAddress,
         userAgent,
         success: true,
       });
 
-      res.json({ hasApiKey: !!apiKey });
+      res.json({ url: trimmedUrl, hasToken: !!token?.trim() });
     } catch (err) {
-      authLogger.error("Failed to update Tailscale settings", err);
-      res.status(500).json({ error: "Failed to update Tailscale settings" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/command-history-enabled:
-   *   get:
-   *     summary: Get command history enabled setting
-   *     description: Returns whether command history recording is globally enabled.
-   *     tags:
-   *       - Users
-   *     responses:
-   *       200:
-   *         description: Command history enabled status.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 enabled:
-   *                   type: boolean
-   */
-  router.get("/command-history-enabled", authenticateJWT, async (_req, res) => {
-    try {
-      res.json({
-        enabled: await createCurrentSettingsRepository().getBoolean(
-          "command_history_enabled",
-          true,
-        ),
-      });
-    } catch (err) {
-      authLogger.error("Failed to get command history enabled setting", err);
+      authLogger.error("Failed to update audit forwarding settings", err);
       res
         .status(500)
-        .json({ error: "Failed to get command history enabled setting" });
+        .json({ error: "Failed to update audit forwarding settings" });
     }
   });
 
   /**
-   * @openapi
-   * /users/command-history-enabled:
-   *   patch:
-   *     summary: Update command history enabled setting (admin only)
-   *     description: Globally enables or disables command history recording for all hosts.
-   *     tags:
-   *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               enabled:
-   *                 type: boolean
-   *     responses:
-   *       200:
-   *         description: Setting updated.
-   *       403:
-   *         description: Not authorized.
-   *       500:
-   *         description: Failed to update setting.
+   * GET/PATCH a comma-list of private hosts an outbound feature may reach.
+   * One route pair per private endpoint allowlist, each with its own setting key.
    */
-  router.patch(
-    "/command-history-enabled",
-    authenticateJWT,
-    async (req, res) => {
+  const registerPrivateEndpointAllowlist = (
+    path: string,
+    settingKey: string,
+    auditAction: string,
+    label: string,
+  ) => {
+    router.get(path, authenticateJWT, async (req, res) => {
+      const userId = (req as AuthenticatedRequest).userId;
+      try {
+        if (!(await getAdminActor(userId))) {
+          return res.status(403).json({ error: "Not authorized" });
+        }
+        const raw = await createCurrentSettingsRepository().get(settingKey);
+        res.json({ hosts: parseNotificationAllowlist(raw) });
+      } catch (err) {
+        authLogger.error(`Failed to get ${label} allowlist`, err);
+        res.status(500).json({ error: "Failed to get the allowlist" });
+      }
+    });
+
+    router.patch(path, authenticateJWT, async (req, res) => {
       const userId = (req as AuthenticatedRequest).userId;
       try {
         const actor = await getAdminActor(userId);
         if (!actor) {
           return res.status(403).json({ error: "Not authorized" });
         }
-        const { enabled } = req.body;
-        if (typeof enabled !== "boolean") {
-          return res.status(400).json({ error: "enabled must be a boolean" });
+
+        const { hosts } = req.body;
+        if (!Array.isArray(hosts)) {
+          return res.status(400).json({ error: "hosts must be an array" });
         }
-        await createCurrentSettingsRepository().set(
-          "command_history_enabled",
-          enabled ? "true" : "false",
-        );
-
-        const { ipAddress, userAgent } = getRequestMeta(req);
-        await logAudit({
-          userId,
-          username: actor.username ?? userId,
-          action: "update_command_history_enabled",
-          resourceType: "setting",
-          details: JSON.stringify({ enabled }),
-          ipAddress,
-          userAgent,
-          success: true,
-        });
-
-        res.json({ enabled });
-      } catch (err) {
-        authLogger.error(
-          "Failed to update command history enabled setting",
-          err,
-        );
-        res
-          .status(500)
-          .json({ error: "Failed to update command history enabled setting" });
-      }
-    },
-  );
-
-  /**
-   * @openapi
-   * /users/analytics-enabled:
-   *   get:
-   *     summary: Get analytics enabled setting
-   *     description: Returns whether anonymous usage telemetry is enabled, and whether the value is locked by the ENABLE_TELEMETRY environment variable.
-   *     tags:
-   *       - Users
-   *     responses:
-   *       200:
-   *         description: Analytics enabled status.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 enabled:
-   *                   type: boolean
-   *                 locked:
-   *                   type: boolean
-   */
-  router.get("/analytics-enabled", authenticateJWT, async (_req, res) => {
-    try {
-      const override = getTelemetryEnvOverride();
-      if (override !== null) {
-        return res.json({ enabled: override, locked: true });
-      }
-      res.json({
-        enabled: await createCurrentSettingsRepository().getBoolean(
-          "analytics_enabled",
-          true,
-        ),
-        locked: false,
-      });
-    } catch (err) {
-      authLogger.error("Failed to get analytics enabled setting", err);
-      res
-        .status(500)
-        .json({ error: "Failed to get analytics enabled setting" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/analytics-enabled:
-   *   patch:
-   *     summary: Update analytics enabled setting (admin only)
-   *     description: Enables or disables the daily anonymous usage telemetry heartbeat.
-   *     tags:
-   *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               enabled:
-   *                 type: boolean
-   *     responses:
-   *       200:
-   *         description: Setting updated.
-   *       403:
-   *         description: Not authorized.
-   *       409:
-   *         description: Setting is locked by the ENABLE_TELEMETRY environment variable.
-   *       500:
-   *         description: Failed to update setting.
-   */
-  router.patch("/analytics-enabled", authenticateJWT, async (req, res) => {
-    const userId = (req as AuthenticatedRequest).userId;
-    try {
-      const actor = await getAdminActor(userId);
-      if (!actor) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-      if (getTelemetryEnvOverride() !== null) {
-        return res.status(409).json({
-          error: "Telemetry is locked by the ENABLE_TELEMETRY env variable",
-        });
-      }
-      const { enabled } = req.body;
-      if (typeof enabled !== "boolean") {
-        return res.status(400).json({ error: "enabled must be a boolean" });
-      }
-      await createCurrentSettingsRepository().set(
-        "analytics_enabled",
-        enabled ? "true" : "false",
-      );
-
-      const { ipAddress, userAgent } = getRequestMeta(req);
-      await logAudit({
-        userId,
-        username: actor.username ?? userId,
-        action: "update_analytics_enabled",
-        resourceType: "setting",
-        details: JSON.stringify({ enabled }),
-        ipAddress,
-        userAgent,
-        success: true,
-      });
-
-      res.json({ enabled });
-    } catch (err) {
-      authLogger.error("Failed to update analytics enabled setting", err);
-      res
-        .status(500)
-        .json({ error: "Failed to update analytics enabled setting" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/session-sharing-enabled:
-   *   get:
-   *     summary: Get session sharing globally enabled setting
-   *     description: Returns whether live session sharing (terminal/RDP/VNC/Telnet share links and in-app joins) is allowed instance-wide. Overrides every per-host toggle when false.
-   *     tags:
-   *       - Users
-   *     responses:
-   *       200:
-   *         description: Session sharing enabled status.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 enabled:
-   *                   type: boolean
-   */
-  router.get("/session-sharing-enabled", authenticateJWT, async (_req, res) => {
-    try {
-      res.json({
-        enabled: await createCurrentSettingsRepository().getBoolean(
-          "session_sharing_globally_enabled",
-          true,
-        ),
-      });
-    } catch (err) {
-      authLogger.error("Failed to get session sharing enabled setting", err);
-      res
-        .status(500)
-        .json({ error: "Failed to get session sharing enabled setting" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/session-sharing-enabled:
-   *   patch:
-   *     summary: Update session sharing globally enabled setting (admin only)
-   *     description: Enables or disables live session sharing instance-wide, overriding every per-host allowSessionSharing toggle.
-   *     tags:
-   *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               enabled:
-   *                 type: boolean
-   *     responses:
-   *       200:
-   *         description: Setting updated.
-   *       403:
-   *         description: Not authorized.
-   *       500:
-   *         description: Failed to update setting.
-   */
-  router.patch(
-    "/session-sharing-enabled",
-    authenticateJWT,
-    async (req, res) => {
-      const userId = (req as AuthenticatedRequest).userId;
-      try {
-        const actor = await getAdminActor(userId);
-        if (!actor) {
-          return res.status(403).json({ error: "Not authorized" });
-        }
-        const { enabled } = req.body;
-        if (typeof enabled !== "boolean") {
-          return res.status(400).json({ error: "enabled must be a boolean" });
-        }
-        await createCurrentSettingsRepository().set(
-          "session_sharing_globally_enabled",
-          enabled ? "true" : "false",
-        );
-
-        const { ipAddress, userAgent } = getRequestMeta(req);
-        await logAudit({
-          userId,
-          username: actor.username ?? userId,
-          action: "update_session_sharing_enabled",
-          resourceType: "setting",
-          details: JSON.stringify({ enabled }),
-          ipAddress,
-          userAgent,
-          success: true,
-        });
-
-        res.json({ enabled });
-      } catch (err) {
-        authLogger.error(
-          "Failed to update session sharing enabled setting",
-          err,
-        );
-        res
-          .status(500)
-          .json({ error: "Failed to update session sharing enabled setting" });
-      }
-    },
-  );
-
-  /**
-   * @openapi
-   * /users/ai-enabled:
-   *   get:
-   *     summary: Get whether the AI assistant is enabled instance-wide
-   *     tags:
-   *       - Users
-   *     responses:
-   *       200:
-   *         description: AI enabled status.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 enabled:
-   *                   type: boolean
-   */
-  router.get("/ai-enabled", authenticateJWT, async (_req, res) => {
-    try {
-      res.json({
-        // Defaults to false so upgrading an install never turns the assistant
-        // on without an admin deciding to.
-        enabled: await createCurrentSettingsRepository().getBoolean(
-          "ai_globally_enabled",
-          false,
-        ),
-      });
-    } catch (err) {
-      authLogger.error("Failed to get AI enabled setting", err);
-      res.status(500).json({ error: "Failed to get AI enabled setting" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/ai-enabled:
-   *   patch:
-   *     summary: Update the instance-wide AI assistant setting (admin only)
-   *     description: Turning this off hides and blocks the assistant for every user, whatever their own preference says.
-   *     tags:
-   *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               enabled:
-   *                 type: boolean
-   *     responses:
-   *       200:
-   *         description: Setting updated.
-   *       403:
-   *         description: Not authorized.
-   */
-  router.patch("/ai-enabled", authenticateJWT, async (req, res) => {
-    const userId = (req as AuthenticatedRequest).userId;
-    try {
-      const actor = await getAdminActor(userId);
-      if (!actor) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-      const { enabled } = req.body;
-      if (typeof enabled !== "boolean") {
-        return res.status(400).json({ error: "enabled must be a boolean" });
-      }
-      await createCurrentSettingsRepository().set(
-        "ai_globally_enabled",
-        enabled ? "true" : "false",
-      );
-
-      const { ipAddress, userAgent } = getRequestMeta(req);
-      await logAudit({
-        userId,
-        username: actor.username ?? userId,
-        action: "update_ai_enabled",
-        resourceType: "setting",
-        details: JSON.stringify({ enabled }),
-        ipAddress,
-        userAgent,
-        success: true,
-      });
-
-      res.json({ enabled });
-    } catch (err) {
-      authLogger.error("Failed to update AI enabled setting", err);
-      res.status(500).json({ error: "Failed to update AI enabled setting" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/ai-private-endpoints:
-   *   get:
-   *     summary: Get the allowlist of private AI endpoint hosts
-   *     tags:
-   *       - Users
-   *     responses:
-   *       200:
-   *         description: Allowed hosts.
-   */
-  router.get("/ai-private-endpoints", authenticateJWT, async (_req, res) => {
-    try {
-      const raw = await createCurrentSettingsRepository().get(
-        AI_PRIVATE_ALLOWLIST_KEY,
-      );
-      res.json({ hosts: parseAllowlist(raw) });
-    } catch (err) {
-      authLogger.error("Failed to get AI private endpoint allowlist", err);
-      res.status(500).json({ error: "Failed to get the allowlist" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/ai-private-endpoints:
-   *   patch:
-   *     summary: Replace the allowlist of private AI endpoint hosts (admin only)
-   *     description: >
-   *       Providers on private or loopback addresses, such as a self-hosted
-   *       Ollama, are refused unless their host appears here. Without this an
-   *       ordinary user could point a provider at an internal service and use
-   *       the server as a probe of its own network.
-   *     tags:
-   *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               hosts:
-   *                 type: array
-   *                 items:
-   *                   type: string
-   *     responses:
-   *       200:
-   *         description: Allowlist updated.
-   *       403:
-   *         description: Not authorized.
-   */
-  router.patch("/ai-private-endpoints", authenticateJWT, async (req, res) => {
-    const userId = (req as AuthenticatedRequest).userId;
-    try {
-      const actor = await getAdminActor(userId);
-      if (!actor) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-
-      const { hosts } = req.body;
-      if (!Array.isArray(hosts)) {
-        return res.status(400).json({ error: "hosts must be an array" });
-      }
-      if (hosts.length > 50) {
-        return res.status(400).json({ error: "At most 50 hosts are allowed" });
-      }
-
-      const cleaned: string[] = [];
-      for (const entry of hosts) {
-        if (typeof entry !== "string") {
-          return res.status(400).json({ error: "Each host must be a string" });
-        }
-        const host = entry.trim().toLowerCase();
-        if (!host) continue;
-        // A bare host, not a URL: no scheme, path, port or whitespace.
-        if (!/^[a-z0-9._:-]+$/.test(host)) {
+        if (hosts.length > 50) {
           return res
             .status(400)
-            .json({ error: `${entry} is not a valid hostname` });
+            .json({ error: "At most 50 hosts are allowed" });
         }
-        if (!cleaned.includes(host)) cleaned.push(host);
+        const cleaned: string[] = [];
+        for (const entry of hosts) {
+          if (typeof entry !== "string") {
+            return res
+              .status(400)
+              .json({ error: "Each host must be a string" });
+          }
+          const host = entry.trim().toLowerCase();
+          if (!host) continue;
+          if (!/^[a-z0-9._:-]+$/.test(host)) {
+            return res
+              .status(400)
+              .json({ error: `${entry} is not a valid hostname` });
+          }
+          if (!cleaned.includes(host)) cleaned.push(host);
+        }
+
+        await createCurrentSettingsRepository().set(
+          settingKey,
+          JSON.stringify(cleaned),
+        );
+        const { ipAddress, userAgent } = getRequestMeta(req);
+        await logAudit({
+          userId,
+          username: actor.username ?? userId,
+          action: auditAction,
+          resourceType: "setting",
+          details: JSON.stringify({ hosts: cleaned }),
+          ipAddress,
+          userAgent,
+          success: true,
+        });
+        res.json({ hosts: cleaned });
+      } catch (err) {
+        authLogger.error(`Failed to update ${label} allowlist`, err);
+        res.status(500).json({ error: "Failed to update the allowlist" });
       }
-
-      await createCurrentSettingsRepository().set(
-        AI_PRIVATE_ALLOWLIST_KEY,
-        JSON.stringify(cleaned),
-      );
-
-      const { ipAddress, userAgent } = getRequestMeta(req);
-      await logAudit({
-        userId,
-        username: actor.username ?? userId,
-        action: "update_ai_private_endpoints",
-        resourceType: "setting",
-        details: JSON.stringify({ hosts: cleaned }),
-        ipAddress,
-        userAgent,
-        success: true,
-      });
-
-      res.json({ hosts: cleaned });
-    } catch (err) {
-      authLogger.error("Failed to update AI private endpoint allowlist", err);
-      res.status(500).json({ error: "Failed to update the allowlist" });
-    }
-  });
+    });
+  };
 
   /**
    * @openapi
-   * /users/host-defaults:
+   * /users/notification-private-endpoints:
    *   get:
-   *     summary: Get host creation defaults
-   *     description: Returns the global default settings applied when creating a new host.
+   *     summary: Get the private hosts notification channels may contact (admin only)
    *     tags:
    *       - Users
-   *     responses:
-   *       200:
-   *         description: Host defaults object.
-   *       500:
-   *         description: Failed to get host defaults.
-   */
-  router.get("/host-defaults", authenticateJWT, async (_req, res) => {
-    try {
-      const value =
-        await createCurrentSettingsRepository().get("host_defaults");
-      const defaults: HostDefaults = value ? JSON.parse(value) : {};
-      res.json(defaults);
-    } catch (err) {
-      authLogger.error("Failed to get host defaults", err);
-      res.status(500).json({ error: "Failed to get host defaults" });
-    }
-  });
-
-  /**
-   * @openapi
-   * /users/host-defaults:
    *   patch:
-   *     summary: Update host creation defaults (admin only)
-   *     description: Sets global default settings applied when a new host is created.
+   *     summary: Replace that allowlist (admin only)
    *     tags:
    *       - Users
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *     responses:
-   *       200:
-   *         description: Host defaults updated.
-   *       403:
-   *         description: Not authorized.
-   *       500:
-   *         description: Failed to update host defaults.
    */
-  router.patch("/host-defaults", authenticateJWT, async (req, res) => {
-    const userId = (req as AuthenticatedRequest).userId;
-    try {
-      const actor = await getAdminActor(userId);
-      if (!actor) {
-        return res.status(403).json({ error: "Not authorized" });
-      }
-      const defaults: HostDefaults = req.body;
-      await createCurrentSettingsRepository().set(
-        "host_defaults",
-        JSON.stringify(defaults),
-      );
-
-      const { ipAddress, userAgent } = getRequestMeta(req);
-      await logAudit({
-        userId,
-        username: actor.username ?? userId,
-        action: "update_host_defaults",
-        resourceType: "setting",
-        details: JSON.stringify(defaults),
-        ipAddress,
-        userAgent,
-        success: true,
-      });
-
-      res.json(defaults);
-    } catch (err) {
-      authLogger.error("Failed to update host defaults", err);
-      res.status(500).json({ error: "Failed to update host defaults" });
-    }
-  });
+  registerPrivateEndpointAllowlist(
+    "/notification-private-endpoints",
+    NOTIFICATION_PRIVATE_ALLOWLIST_KEY,
+    "update_notification_private_endpoints",
+    "notification endpoint",
+  );
 }

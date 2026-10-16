@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
 import * as schema from "../../../database/db/schema.js";
 import type { DatabaseContext } from "../../../database/repositories/database-context.js";
 import type { DatabaseDialect } from "../../../database/db/dialect.js";
@@ -19,7 +20,7 @@ import type { DatabaseDialect } from "../../../database/db/dialect.js";
  *
  * Defaults to SQLite, so `npm test` behaves as it always has and needs no
  * server. Set TEST_DIALECT=postgres or mysql, plus TEST_DATABASE_URL, to run
- * the same tests against a real one — see the database-dialects CI job.
+ * the same tests against a real one, see the database-dialects CI job.
  */
 export function testDialect(env = process.env): DatabaseDialect {
   const value = env.TEST_DIALECT?.trim().toLowerCase();
@@ -124,7 +125,7 @@ export class TestSqliteDatabase {
    * Portable write for test setup.
    *
    * Separate from query() because better-sqlite3 refuses `.all()` on a
-   * statement that returns no rows — "This statement does not return data".
+   * statement that returns no rows, "This statement does not return data".
    */
   async run(statement: SQL): Promise<void> {
     const context = this.context;
@@ -206,7 +207,7 @@ async function truncateAll(context: DatabaseContext): Promise<void> {
 }
 
 /**
- * Splits seed SQL into statements, ignoring semicolons inside string literals —
+ * Splits seed SQL into statements, ignoring semicolons inside string literals,
  * JSON payloads in the fixtures contain them.
  */
 function splitStatements(sql: string): string[] {
@@ -273,7 +274,7 @@ function portableSql(statement: string, dialect: DatabaseDialect): string {
   if (dialect !== "mysql") return out;
 
   // Only the column list, before VALUES. A blanket replace also mangles the
-  // double quotes inside JSON payloads in the values — '{"slots":[]}' became
+  // double quotes inside JSON payloads in the values, '{"slots":[]}' became
   // '{`slots`:[]}', which is valid SQL and silently wrong data.
   const split = /^(.*?\bVALUES\b)(.*)$/is.exec(out);
   if (!split) return out.replace(/"([a-z_]+)"/g, "`$1`");
@@ -353,7 +354,7 @@ async function resyncAutoIncrement(
   for (const table of tables) {
     // Only tables whose id is generated. A text primary key, like users.id,
     // has no sequence and no counter to move, and a table keyed on something
-    // else entirely — host_sidebar_preferences.user_id — has no id at all.
+    // else entirely, host_sidebar_preferences.user_id, has no id at all.
     if (context.dialect === "postgres") {
       // pg_get_serial_sequence() raises 42703 rather than returning null when
       // the column is missing, so let information_schema decide whether there
@@ -407,7 +408,7 @@ async function resyncAutoIncrement(
  *
  * Every test builds a fixture, and each would otherwise re-run the migrator
  * against the same shared database. drizzle's journal makes that a no-op only
- * when the first run finished — several fixtures racing inside one file hit
+ * when the first run finished, several fixtures racing inside one file hit
  * "table already exists" instead.
  */
 const migrations = new Map<string, Promise<void>>();
@@ -435,7 +436,7 @@ let cachedSqliteSchema: string | null = null;
  * The full schema, from the generated SQLite migrations rather than
  * hand-written DDL in each test file.
  *
- * Tests used to declare a cut-down version of every table they touched — a
+ * Tests used to declare a cut-down version of every table they touched, a
  * `users` with five columns where the real one has thirty. That drifts from the
  * schema silently, and it is the reason the same tests could not be pointed at
  * another engine.
@@ -448,7 +449,10 @@ let cachedSqliteSchema: string | null = null;
 function sqliteSchemaSql(): string {
   if (cachedSqliteSchema) return cachedSqliteSchema;
 
-  const dir = path.resolve(process.cwd(), "drizzle", "sqlite");
+  // Resolved from this file, not cwd: plugin suites run with their own
+  // directory as cwd and would not find drizzle/ otherwise.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const dir = path.resolve(here, "../../../../..", "drizzle", "sqlite");
   const files = fs
     .readdirSync(dir)
     .filter((name) => name.endsWith(".sql"))

@@ -14,13 +14,32 @@ function getAllowedOrigins(): string[] {
     .filter(Boolean);
 }
 
-function isLocalRequest(req: Request): boolean {
-  const remoteAddr = req.socket?.remoteAddress || req.ip || "";
+/**
+ * Origins allowed to drive the embedded desktop backend: the desktop app
+ * itself and the dev server. Any website open in a browser on the same
+ * machine can reach loopback too, so nothing else gets in.
+ */
+export function isDesktopAppOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
   return (
-    remoteAddr === "127.0.0.1" ||
-    remoteAddr === "::1" ||
-    remoteAddr === "::ffff:127.0.0.1"
+    DEV_ORIGINS.includes(origin) || origin.startsWith(ELECTRON_FILE_ORIGIN)
   );
+}
+
+export function isCorsOriginAllowed(
+  req: Request,
+  origin: string | undefined,
+): boolean {
+  if (isDesktopAppOrigin(origin)) return true;
+
+  const configured = getAllowedOrigins();
+  if (process.env.ELECTRON_EMBEDDED === "true") {
+    return configured.includes(origin) || origin === getRequestOrigin(req);
+  }
+  if (configured.length === 0) return true;
+  if (configured.includes(origin)) return true;
+
+  return origin === getRequestOrigin(req);
 }
 
 export function createCorsMiddleware(
@@ -36,6 +55,7 @@ export function createCorsMiddleware(
     "User-Agent",
     "X-Electron-App",
     "X-Termix-Device-ID",
+    "X-Termix-Trust-Token",
     "Cache-Control",
     "x-admin-target-user",
     ...extraHeaders,
@@ -44,23 +64,7 @@ export function createCorsMiddleware(
   return (req: Request, res: Response, next: NextFunction) => {
     const handler = cors({
       origin: (origin, callback) => {
-        // No origin = same-origin or non-browser request (curl, internal service calls)
-        if (!origin) return callback(null, true);
-
-        // Requests coming from localhost (nginx proxy, internal service calls)
-        if (isLocalRequest(req)) return callback(null, true);
-
-        if (DEV_ORIGINS.includes(origin)) return callback(null, true);
-        if (origin.startsWith(ELECTRON_FILE_ORIGIN))
-          return callback(null, true);
-
-        const configured = getAllowedOrigins();
-        if (configured.includes("*") || configured.includes(origin))
-          return callback(null, true);
-
-        const sameOrigin = getRequestOrigin(req);
-        if (origin === sameOrigin) return callback(null, true);
-
+        if (isCorsOriginAllowed(req, origin)) return callback(null, true);
         callback(new Error("Not allowed by CORS"));
       },
       credentials: true,

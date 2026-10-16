@@ -1,4 +1,7 @@
+import type React from "react";
 import { useRef, useState } from "react";
+import { EditorPane, EditorSection } from "@/manage/EditorPane";
+import { PluginComponent } from "@/plugin-host/component-registry";
 import { useTranslation } from "react-i18next";
 import { copyToClipboard } from "@/lib/clipboard";
 import { Copy, Info, Lock, Upload, X } from "lucide-react";
@@ -22,7 +25,7 @@ import { FolderPathPicker } from "./FolderPathPicker";
 
 export function CredentialEditorView({
   credential,
-  activeTab,
+  banner,
   onBack,
   onSave,
   adminTargetUserId,
@@ -30,7 +33,8 @@ export function CredentialEditorView({
   saveAsNewHost,
 }: {
   credential: Credential | null;
-  activeTab: string;
+  /** Shown above the form. */
+  banner?: React.ReactNode;
   onBack: () => void;
   onSave: (
     saved: Record<string, unknown>,
@@ -42,6 +46,7 @@ export function CredentialEditorView({
   // shows a "Save as New" action that clones it and reassigns the host.
   saveAsNewHost?: Host | "new";
 }) {
+  const [showSecretSources, setShowSecretSources] = useState(false);
   const [credForm, setCredForm] = useState(() => ({
     name: credential?.name ?? "",
     username: credential?.username ?? "",
@@ -168,9 +173,73 @@ export function CredentialEditorView({
     }
   };
 
+  const nameMissing = !credForm.name.trim();
+  const bands = [
+    {
+      id: "credential",
+      label: t("manage.bandCredential"),
+      items: [
+        {
+          id: "general",
+          label: t("hosts.basicInformation"),
+          icon: <Info className="size-3.5" />,
+          error: nameMissing,
+        },
+        {
+          id: "auth",
+          label: t("hosts.authDetailsSection"),
+          icon: <Lock className="size-3.5" />,
+        },
+      ],
+    },
+  ];
+
   return (
-    <div className="flex flex-col gap-3">
-      {activeTab === "general" && (
+    <EditorPane
+      bands={bands}
+      banner={banner}
+      errorCount={nameMissing ? 1 : 0}
+      footer={
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            disabled={saving || savingAsNew}
+          >
+            {t("hosts.cancelBtn")}
+          </Button>
+          {saveAsNewHost && credential && !adminTargetUserId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="px-4"
+              onClick={handleSaveAsNew}
+              disabled={saving || savingAsNew || nameMissing}
+              title={t("hosts.saveCredentialAsNewDesc")}
+            >
+              {savingAsNew
+                ? t("hosts.savingBtn")
+                : t("hosts.saveCredentialAsNewBtn")}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand px-6"
+            onClick={handleSave}
+            disabled={saving || savingAsNew || nameMissing}
+          >
+            {saving
+              ? t("hosts.savingBtn")
+              : credential
+                ? t("hosts.updateCredentialBtn")
+                : t("hosts.addCredentialBtn")}
+          </Button>
+        </>
+      }
+    >
+      <EditorSection id="general" showHeading={false}>
         <SectionCard
           title={t("hosts.basicInformation")}
           icon={<Info className="size-3.5" />}
@@ -181,7 +250,7 @@ export function CredentialEditorView({
                 {t("hosts.friendlyNameLabel")}
               </label>
               <Input
-                placeholder="e.g. Production SSH Key"
+                placeholder={t("placeholders.credentialName")}
                 value={credForm.name}
                 onChange={(e) => setCredField("name", e.target.value)}
               />
@@ -201,7 +270,7 @@ export function CredentialEditorView({
                 {t("hosts.descriptionLabel")}
               </label>
               <Input
-                placeholder="Optional details..."
+                placeholder={t("placeholders.optionalDetails")}
                 value={credForm.description}
                 onChange={(e) => setCredField("description", e.target.value)}
               />
@@ -263,9 +332,9 @@ export function CredentialEditorView({
             </div>
           </div>
         </SectionCard>
-      )}
+      </EditorSection>
 
-      {activeTab === "auth" && (
+      <EditorSection id="auth" showHeading={false}>
         <SectionCard
           title={t("hosts.authDetailsSection")}
           icon={<Lock className="size-3.5" />}
@@ -276,7 +345,7 @@ export function CredentialEditorView({
                 {t("hosts.username")}
               </label>
               <Input
-                placeholder="e.g. root or deploy"
+                placeholder={t("placeholders.sshUsername")}
                 value={credForm.username}
                 onChange={(e) => setCredField("username", e.target.value)}
               />
@@ -291,7 +360,17 @@ export function CredentialEditorView({
                 value={credForm.password}
                 onChange={(e) => setCredField("password", e.target.value)}
               />
+              <PluginComponent
+                id="credentials.secretHint"
+                onManage={() => setShowSecretSources((v) => !v)}
+              />
             </div>
+            {showSecretSources && (
+              <PluginComponent
+                id="credentials.secretManager"
+                onClose={() => setShowSecretSources(false)}
+              />
+            )}
             <div className="flex flex-col gap-4">
               <div className="p-3 border border-border bg-muted/20">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
@@ -381,7 +460,7 @@ export function CredentialEditorView({
                 />
                 {credForm.value === "existing_key" && (
                   <div className="px-3 py-2 text-[10px] border border-accent-brand/30 bg-accent-brand/5 text-accent-brand">
-                    {t("hosts.keySaved")} — {t("hosts.keyReplaceNotice")}
+                    {t("hosts.keySaved")}. {t("hosts.keyReplaceNotice")}
                   </div>
                 )}
                 <textarea
@@ -410,10 +489,6 @@ export function CredentialEditorView({
                       ? ""
                       : credForm.passphrase
                   }
-                  onFocus={() => {
-                    if (credForm.passphrase === "existing_key_password")
-                      setCredField("passphrase", "");
-                  }}
                   onChange={(e) => setCredField("passphrase", e.target.value)}
                 />
               </div>
@@ -532,42 +607,7 @@ export function CredentialEditorView({
             </div>
           </div>
         </SectionCard>
-      )}
-
-      <div className="flex justify-end gap-3 mt-3">
-        <Button
-          variant="ghost"
-          onClick={onBack}
-          disabled={saving || savingAsNew}
-        >
-          {t("hosts.cancelBtn")}
-        </Button>
-        {saveAsNewHost && credential && !adminTargetUserId && (
-          <Button
-            variant="outline"
-            className="px-6"
-            onClick={handleSaveAsNew}
-            disabled={saving || savingAsNew}
-            title={t("hosts.saveCredentialAsNewDesc")}
-          >
-            {savingAsNew
-              ? t("hosts.savingBtn")
-              : t("hosts.saveCredentialAsNewBtn")}
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          className="border-accent-brand/40 text-accent-brand hover:bg-accent-brand/10 hover:text-accent-brand px-8"
-          onClick={handleSave}
-          disabled={saving || savingAsNew}
-        >
-          {saving
-            ? t("hosts.savingBtn")
-            : credential
-              ? t("hosts.updateCredentialBtn")
-              : t("hosts.addCredentialBtn")}
-        </Button>
-      </div>
-    </div>
+      </EditorSection>
+    </EditorPane>
   );
 }

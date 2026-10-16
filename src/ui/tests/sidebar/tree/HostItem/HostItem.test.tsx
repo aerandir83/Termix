@@ -1,6 +1,15 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { registerHostProtocol } from "@/sidebar/host-protocols";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Host } from "@/types/ui-types";
+import { registerHostAction } from "@/sidebar/host-contributions";
 import { LOCAL_ADAPTIVE_PREFERENCES_KEY } from "@/lib/local-adaptive-preferences";
 
 const { markTabSurfaceUsedMock, preloadTabSurfaceMock } = vi.hoisted(() => ({
@@ -23,7 +32,7 @@ vi.mock("@/lib/ServerStatusContext", () => ({
     getStatus: () => "online",
     initialLoadComplete: true,
   }),
-  useServerStatusMeta: () => ({ initialLoadComplete: true, isLoading: false }),
+  useServerStatusMeta: () => ({ initialLoadComplete: true }),
 }));
 
 vi.mock("@/hooks/use-status-color-scheme", () => ({
@@ -33,10 +42,13 @@ vi.mock("@/hooks/use-status-color-scheme", () => ({
 
 vi.mock("@/main-axios", () => ({
   getHostPassword: vi.fn(),
-  wakeOnLan: vi.fn(),
 }));
 
-import { HostItem } from "../../../../sidebar/tree/HostItem/HostItem";
+import {
+  HostItem,
+  formatHostAddress,
+} from "../../../../sidebar/tree/HostItem/HostItem";
+import { defaultHostRowFields } from "@/types/host-sidebar-preferences";
 
 const baseHost: Host = {
   id: "1",
@@ -58,12 +70,9 @@ const baseHost: Host = {
   enableCommandHistory: true,
   enableTunnel: true,
   enableFileManager: true,
-  enableDocker: true,
   enableRdp: true,
   enableVnc: true,
   enableTelnet: true,
-  macAddress: "aa:bb:cc:dd:ee:ff",
-  quickActions: [],
 } as unknown as Host;
 
 const noop = () => {};
@@ -106,9 +115,39 @@ describe("HostItem density parity", () => {
     "exposes the Copy Link submenu trigger in %s density",
     (density) => {
       renderHostItem(density, { menuOpen: true });
+      expect(screen.getByText("common.connect")).toBeTruthy();
       expect(screen.getByText("hosts.copyLink")).toBeTruthy();
     },
   );
+
+  it("opens the complete host menu on right click", () => {
+    function Harness() {
+      const [menuOpen, setMenuOpen] = useState(false);
+      return (
+        <HostItem
+          host={baseHost}
+          onOpenTab={noop}
+          onEditHost={noop}
+          onShareHost={noop}
+          onDelete={noop}
+          onDuplicate={noop}
+          isMenuOpen={menuOpen}
+          onMenuOpenChange={setMenuOpen}
+        />
+      );
+    }
+    render(<Harness />);
+
+    const hostRow = screen.getByText("web-01").closest(".cursor-pointer");
+    expect(hostRow).toBeTruthy();
+    fireEvent.contextMenu(hostRow!, { clientX: 120, clientY: 80 });
+
+    expect(screen.getByText("common.connect")).toBeTruthy();
+    expect(screen.getAllByText("hosts.editHostAction").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("hosts.shareHost").length).toBeGreaterThan(0);
+  });
 
   it.each(["comfortable", "compact"] as const)(
     "exposes edit, share, and more-options actions in %s density",
@@ -121,20 +160,26 @@ describe("HostItem density parity", () => {
   );
 
   it.each(["comfortable", "compact"] as const)(
-    "exposes RDP, VNC, and Telnet quick-launch buttons in %s density",
+    "exposes plugin connect actions as quick-launch buttons in %s density",
     (density) => {
-      renderHostItem(density);
-      expect(screen.getByTitle("hosts.connectRdp")).toBeTruthy();
-      expect(screen.getByTitle("hosts.connectVnc")).toBeTruthy();
-      expect(screen.getByTitle("hosts.connectTelnet")).toBeTruthy();
-    },
-  );
-
-  it.each(["comfortable", "compact"] as const)(
-    "exposes the wake-on-LAN button when a MAC address is set, in %s density",
-    (density) => {
-      renderHostItem(density);
-      expect(screen.getByTitle("hosts.wakeOnLanAction")).toBeTruthy();
+      const Icon = (() => null) as never;
+      const disposers = ["desk", "screen"].map((id) =>
+        registerHostAction({
+          id,
+          titleKey: `fixture.${id}`,
+          icon: Icon,
+          kind: "connect",
+          tabType: id,
+          when: () => true,
+        }),
+      );
+      try {
+        renderHostItem(density);
+        expect(screen.getByTitle("fixture.desk")).toBeTruthy();
+        expect(screen.getByTitle("fixture.screen")).toBeTruthy();
+      } finally {
+        disposers.forEach((dispose) => dispose());
+      }
     },
   );
 
@@ -146,12 +191,43 @@ describe("HostItem density parity", () => {
     },
   );
 
+  it.each(["hover", "click", "always", "actionsOnly"] as const)(
+    "keeps the compact host address visible with %s actions",
+    (trayTrigger) => {
+      const props = {
+        host: baseHost,
+        onOpenTab: noop,
+        onDelete: noop,
+        onDuplicate: noop,
+        density: "compact" as const,
+        trayTrigger,
+      };
+      const { rerender } = render(<HostItem {...props} />);
+      expect(screen.getByText(baseHost.ip).classList.contains("hidden")).toBe(
+        false,
+      );
+      rerender(<HostItem {...props} isHovered />);
+      expect(screen.getByText(baseHost.ip).classList.contains("hidden")).toBe(
+        false,
+      );
+      rerender(<HostItem {...props} isTrayOpen selectionMode />);
+      expect(screen.getAllByText(baseHost.ip)).toHaveLength(1);
+    },
+  );
+
   it("shows tags in both densities when showTags is true", () => {
     renderHostItem("comfortable");
     expect(screen.getByText("prod")).toBeTruthy();
     cleanup();
     renderHostItem("compact");
     expect(screen.getByText("prod")).toBeTruthy();
+  });
+
+  it("puts compact tags on the name row instead of their own line", () => {
+    renderHostItem("compact");
+    const tag = screen.getByText("prod");
+    expect(tag.dataset.testid).toBe("host-inline-tag");
+    expect(tag.closest("[data-drag-label]")).toBeTruthy();
   });
 
   it("hides tags in both densities when showTags is false", () => {
@@ -170,17 +246,199 @@ describe("HostItem density parity", () => {
   });
 
   it("learns repeated local actions and preloads the preferred host tool", () => {
-    renderHostItem("comfortable");
-    const filesButton = screen.getByTitle("Files");
-    fireEvent.click(filesButton);
-    fireEvent.click(filesButton);
-    fireEvent.click(filesButton);
+    const Icon = (() => null) as never;
+    const dispose = registerHostAction({
+      id: "tmux_monitor",
+      titleKey: "Tmux Monitor",
+      icon: Icon,
+      kind: "open",
+      tabType: "tmux_monitor",
+      when: () => true,
+    });
+    try {
+      renderHostItem("comfortable");
+      const tmuxButton = screen.getByTitle("Tmux Monitor");
+      fireEvent.click(tmuxButton);
+      fireEvent.click(tmuxButton);
+      fireEvent.click(tmuxButton);
 
-    const hostRow = screen.getByText("web-01").closest(".cursor-pointer");
-    expect(hostRow).toBeTruthy();
-    fireEvent.pointerEnter(hostRow!);
+      const hostRow = screen.getByText("web-01").closest(".cursor-pointer");
+      expect(hostRow).toBeTruthy();
+      fireEvent.pointerEnter(hostRow!);
 
-    expect(preloadTabSurfaceMock).toHaveBeenCalledWith("terminal");
-    expect(preloadTabSurfaceMock).toHaveBeenCalledWith("files");
+      // No plugin registered a connect action, so only the learned tool preloads.
+      expect(preloadTabSurfaceMock).not.toHaveBeenCalledWith("");
+      expect(preloadTabSurfaceMock).toHaveBeenCalledWith("tmux_monitor");
+    } finally {
+      dispose();
+    }
   });
+});
+
+describe("HostItem click behavior", () => {
+  function setup(
+    hostClickBehavior:
+      "newTab" | "focusExisting" | "focusExistingDoubleClickNew",
+  ) {
+    const Icon = (() => null) as never;
+    const dispose = registerHostAction({
+      id: "terminal_test",
+      titleKey: "Terminal",
+      icon: Icon,
+      kind: "connect",
+      tabType: "terminal",
+      when: () => true,
+    });
+    const onOpenTab = vi.fn();
+    render(
+      <HostItem
+        host={baseHost}
+        onOpenTab={onOpenTab}
+        onDelete={noop}
+        onDuplicate={noop}
+        hostClickBehavior={hostClickBehavior}
+      />,
+    );
+    const row = screen.getByText("web-01").closest(".cursor-pointer")!;
+    return { onOpenTab, row, dispose };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("always opens a new tab by default", () => {
+    const { onOpenTab, row, dispose } = setup("newTab");
+    try {
+      fireEvent.click(row);
+      expect(onOpenTab).toHaveBeenCalledWith("terminal", { forceNewTab: true });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("switches to the open tab when set to focus existing", () => {
+    const { onOpenTab, row, dispose } = setup("focusExisting");
+    try {
+      fireEvent.click(row);
+      expect(onOpenTab).toHaveBeenCalledWith("terminal", {
+        forceNewTab: false,
+      });
+      fireEvent.click(row, { ctrlKey: true });
+      expect(onOpenTab).toHaveBeenLastCalledWith("terminal", {
+        forceNewTab: true,
+      });
+    } finally {
+      dispose();
+    }
+  });
+
+  it("switches on a single click and opens a new tab on a double click", () => {
+    vi.useFakeTimers();
+    const { onOpenTab, row, dispose } = setup("focusExistingDoubleClickNew");
+    try {
+      fireEvent.click(row, { detail: 1 });
+      expect(onOpenTab).not.toHaveBeenCalled();
+      act(() => {
+        vi.runAllTimers();
+      });
+      expect(onOpenTab).toHaveBeenCalledTimes(1);
+      expect(onOpenTab).toHaveBeenCalledWith("terminal", {
+        forceNewTab: false,
+      });
+
+      onOpenTab.mockClear();
+      fireEvent.click(row, { detail: 1 });
+      fireEvent.click(row, { detail: 2 });
+      fireEvent.doubleClick(row);
+      act(() => {
+        vi.runAllTimers();
+      });
+      expect(onOpenTab).toHaveBeenCalledTimes(1);
+      expect(onOpenTab).toHaveBeenCalledWith("terminal", { forceNewTab: true });
+    } finally {
+      dispose();
+    }
+  });
+});
+
+describe("HostItem row fields", () => {
+  function renderWith(
+    fields: Partial<ReturnType<typeof defaultHostRowFields>>,
+  ) {
+    return render(
+      <HostItem
+        host={baseHost}
+        onOpenTab={noop}
+        onEditHost={noop}
+        onDelete={noop}
+        onDuplicate={noop}
+        density="comfortable"
+        rowFields={{ ...defaultHostRowFields(), ...fields }}
+      />,
+    );
+  }
+
+  it("shows user@address by default", () => {
+    renderWith({});
+    expect(screen.getByText("root@10.0.0.5")).toBeTruthy();
+  });
+
+  it("hides the address when turned off", () => {
+    renderWith({ showAddress: false });
+    expect(screen.queryByText(/10\.0\.0\.5/)).toBeNull();
+  });
+
+  it("hides the pin icon when turned off", () => {
+    renderWith({ showPinIcon: false });
+    expect(document.querySelector(".lucide-pin")).toBeNull();
+  });
+
+  it("formats the address from the chosen parts", () => {
+    expect(
+      formatHostAddress(baseHost, { showUsername: false, showPort: true }),
+    ).toBe("10.0.0.5:22");
+    expect(
+      formatHostAddress(baseHost, { showUsername: true, showPort: false }),
+    ).toBe("root@10.0.0.5");
+  });
+});
+
+it("uses the enabled protocol username for non-SSH hosts", () => {
+  const dispose = registerHostProtocol({
+    id: "rdp",
+    pluginId: "remote-desktop",
+    settingKey: "enableRdp",
+    defaultPort: 3389,
+    titleKey: "rdp",
+    icon: () => null,
+  });
+  try {
+    const host: Host = {
+      ...baseHost,
+      enableSsh: false,
+      pluginSettings: { "remote-desktop": { enableRdp: true } },
+      protocolAuth: {
+        rdp: {
+          authType: "credential",
+          credentialId: 6,
+          username: "Administrator",
+          fields: {},
+        },
+      },
+    };
+    const fields = { showUsername: true, showPort: false };
+    expect(formatHostAddress(host, fields)).toBe("Administrator@10.0.0.5");
+    expect(formatHostAddress({ ...host, enableSsh: true }, fields)).toBe(
+      "root@10.0.0.5",
+    );
+    expect(formatHostAddress({ ...host, protocolAuth: {} }, fields)).toBe(
+      "10.0.0.5",
+    );
+    expect(formatHostAddress(host, { ...fields, showUsername: false })).toBe(
+      "10.0.0.5",
+    );
+  } finally {
+    dispose();
+  }
 });
