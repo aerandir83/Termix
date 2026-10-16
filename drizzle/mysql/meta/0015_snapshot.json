@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "67d3eda3-8c31-4099-9cb3-263e0e216856",
+  "id": "df7a9e26-6a59-4dd6-82a9-476cdf9532da",
   "prevId": "18a71d34-625b-452c-9035-b1b78df110f3",
   "tables": {
     "ai_conversations": {
@@ -1779,6 +1779,273 @@
       "compositePrimaryKeys": {
         "c2s_tunnel_presets_id": {
           "name": "c2s_tunnel_presets_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "collab_room_members": {
+      "name": "collab_room_members",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "room_id": {
+          "name": "room_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "room_role": {
+          "name": "room_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "('member')"
+        },
+        "added_by": {
+          "name": "added_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(CURRENT_TIMESTAMP)"
+        }
+      },
+      "indexes": {
+        "idx_collab_room_members_room_user": {
+          "name": "idx_collab_room_members_room_user",
+          "columns": [
+            "room_id",
+            "user_id"
+          ],
+          "isUnique": true
+        },
+        "idx_collab_room_members_user": {
+          "name": "idx_collab_room_members_user",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "collab_room_members_room_id_collab_rooms_id_fk": {
+          "name": "collab_room_members_room_id_collab_rooms_id_fk",
+          "tableFrom": "collab_room_members",
+          "tableTo": "collab_rooms",
+          "columnsFrom": [
+            "room_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "collab_room_members_user_id_users_id_fk": {
+          "name": "collab_room_members_user_id_users_id_fk",
+          "tableFrom": "collab_room_members",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "collab_room_members_added_by_users_id_fk": {
+          "name": "collab_room_members_added_by_users_id_fk",
+          "tableFrom": "collab_room_members",
+          "tableTo": "users",
+          "columnsFrom": [
+            "added_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "collab_room_members_id": {
+          "name": "collab_room_members_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "collab_rooms": {
+      "name": "collab_rooms",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "persistent": {
+          "name": "persistent",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "presenter_user_id": {
+          "name": "presenter_user_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stage_protocol": {
+          "name": "stage_protocol",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stage_host_id": {
+          "name": "stage_host_id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stage_share_id": {
+          "name": "stage_share_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(CURRENT_TIMESTAMP)"
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_collab_rooms_owner": {
+          "name": "idx_collab_rooms_owner",
+          "columns": [
+            "owner_user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "collab_rooms_owner_user_id_users_id_fk": {
+          "name": "collab_rooms_owner_user_id_users_id_fk",
+          "tableFrom": "collab_rooms",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "collab_rooms_presenter_user_id_users_id_fk": {
+          "name": "collab_rooms_presenter_user_id_users_id_fk",
+          "tableFrom": "collab_rooms",
+          "tableTo": "users",
+          "columnsFrom": [
+            "presenter_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "collab_rooms_stage_host_id_ssh_data_id_fk": {
+          "name": "collab_rooms_stage_host_id_ssh_data_id_fk",
+          "tableFrom": "collab_rooms",
+          "tableTo": "ssh_data",
+          "columnsFrom": [
+            "stage_host_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "collab_rooms_stage_share_id_session_shares_id_fk": {
+          "name": "collab_rooms_stage_share_id_session_shares_id_fk",
+          "tableFrom": "collab_rooms",
+          "tableTo": "session_shares",
+          "columnsFrom": [
+            "stage_share_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "collab_rooms_id": {
+          "name": "collab_rooms_id",
           "columns": [
             "id"
           ]
@@ -3949,14 +4216,6 @@
           "autoincrement": false,
           "default": false
         },
-        "enable_ard": {
-          "name": "enable_ard",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
         "ssh_port": {
           "name": "ssh_port",
           "type": "int",
@@ -3988,14 +4247,6 @@
           "notNull": false,
           "autoincrement": false,
           "default": 23
-        },
-        "ard_port": {
-          "name": "ard_port",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": 5900
         },
         "rdp_credential_id": {
           "name": "rdp_credential_id",
@@ -4082,27 +4333,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "ard_credential_id": {
-          "name": "ard_credential_id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ard_password": {
-          "name": "ard_password",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ard_user": {
-          "name": "ard_user",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "rdp_auth_type": {
           "name": "rdp_auth_type",
           "type": "text",
@@ -4119,13 +4349,6 @@
         },
         "telnet_auth_type": {
           "name": "telnet_auth_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ard_auth_type": {
-          "name": "ard_auth_type",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -4406,19 +4629,6 @@
           "tableTo": "ssh_credentials",
           "columnsFrom": [
             "telnet_credential_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "ssh_data_ard_credential_id_ssh_credentials_id_fk": {
-          "name": "ssh_data_ard_credential_id_ssh_credentials_id_fk",
-          "tableFrom": "ssh_data",
-          "tableTo": "ssh_credentials",
-          "columnsFrom": [
-            "ard_credential_id"
           ],
           "columnsTo": [
             "id"

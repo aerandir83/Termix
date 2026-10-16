@@ -1,6 +1,8 @@
 import { lookup, type LookupAddress, type LookupOptions } from "dns";
 import { BlockList, isIP } from "net";
 import { Agent, fetch as undiciFetch } from "undici";
+import type { Dispatcher } from "undici-types";
+import { getProxyAgent } from "./proxy-agent.js";
 
 type DnsLookupFn = (
   hostname: string,
@@ -38,6 +40,7 @@ const blockedIpv4Ranges = [
   ["127.0.0.0", 8],
   ["169.254.0.0", 16], // link-local
   ["172.16.0.0", 12],
+  ["192.0.0.0", 24], // IETF protocol assignments
   ["192.168.0.0", 16],
   ["198.18.0.0", 15], // benchmarking
   ["224.0.0.0", 4], // multicast
@@ -68,10 +71,13 @@ export function isBlockedAddress(address: string): boolean {
 }
 
 // Extracted so the blocklist decision can be tested directly against a
-// fake DNS resolver, instead of only through a real fetch()/Agent call —
+// fake DNS resolver, instead of only through a real fetch()/Agent call,
 // the actual bug here lived entirely in this callback, several layers
 // below where undici's own "fetch failed" wrapping would otherwise hide it.
-export function createDnsLookupHook(dnsLookup: DnsLookupFn = lookup) {
+export function createDnsLookupHook(
+  dnsLookup: DnsLookupFn = lookup,
+  allowPrivate = false,
+) {
   return function lookupHook(
     host: string,
     lookupOptions: LookupOptions,
@@ -110,7 +116,10 @@ export function createDnsLookupHook(dnsLookup: DnsLookupFn = lookup) {
           );
         }
 
-        if (addrs.some(({ address }) => isBlockedAddress(address))) {
+        if (
+          !allowPrivate &&
+          addrs.some(({ address }) => isBlockedAddress(address))
+        ) {
           return callback(
             new Error("Private destinations are not allowed"),
             "",
@@ -141,9 +150,58 @@ export function createDnsLookupHook(dnsLookup: DnsLookupFn = lookup) {
   };
 }
 
+export interface OutboundTlsOptions {
+  /** PEM bundle to trust instead of the system store (private CAs). */
+  ca?: string;
+  /**
+   * Skip certificate verification. Only for the one request that fetches a
+   * private CA's root by fingerprint, where the caller verifies the result.
+   */
+  rejectUnauthorized?: boolean;
+}
+
+export async function readResponseTextLimited(
+  response: Response,
+  maxBytes: number,
+): Promise<string> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(`Response exceeds ${maxBytes} bytes`);
+  }
+
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`Response exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(value);
+  }
+
+  return Buffer.concat(chunks, total).toString("utf8");
+}
+
+/** undici's own default for both, kept as the floor. */
+const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
+
+export function outboundIdleTimeout(timeoutMs?: number): number {
+  return Math.max(timeoutMs ?? 0, DEFAULT_IDLE_TIMEOUT_MS);
+}
+
 export async function safeOutboundFetch(
   rawUrl: string,
   options: RequestInit,
+  allowedPrivateHosts: readonly string[] = [],
+  tls: OutboundTlsOptions = {},
+  idleTimeoutMs?: number,
 ): Promise<Response> {
   const url = new URL(rawUrl);
   if (
@@ -155,23 +213,54 @@ export async function safeOutboundFetch(
   }
 
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  if (isIP(hostname) && isBlockedAddress(hostname)) {
+  const allowPrivate = allowedPrivateHosts.some(
+    (host) => host.trim().toLowerCase() === hostname.toLowerCase(),
+  );
+  if (!allowPrivate && isIP(hostname) && isBlockedAddress(hostname)) {
     throw new Error("Private destinations are not allowed");
   }
 
+  // An admin-allowlisted private host goes through the configured proxy,
+  // when there is one, the same way core's own outbound calls do. A public
+  // host never does: the proxy would resolve it, skipping the check above.
+  const proxy =
+    allowPrivate && !tls.ca && tls.rejectUnauthorized !== false
+      ? getProxyAgent(url.toString())
+      : undefined;
+  if (proxy) {
+    return (await undiciFetch(url.toString(), {
+      ...options,
+      dispatcher: proxy as unknown as Dispatcher,
+      redirect: options.redirect === "manual" ? "manual" : "error",
+    } as never)) as unknown as Response;
+  }
+
+  // A slow model can go quiet for minutes mid-stream. Past bodyTimeout undici
+  // kills the body with a bare "terminated".
+  const idle = outboundIdleTimeout(idleTimeoutMs);
   const dispatcher = new Agent({
+    headersTimeout: idle,
+    bodyTimeout: idle,
     connect: {
-      lookup: createDnsLookupHook(lookup),
+      lookup: createDnsLookupHook(lookup, allowPrivate),
+      ...(tls.ca ? { ca: tls.ca } : {}),
+      ...(tls.rejectUnauthorized === false
+        ? { rejectUnauthorized: false }
+        : {}),
     },
   });
 
   try {
-    return await undiciFetch(url.toString(), {
+    const response = await undiciFetch(url.toString(), {
       ...options,
       dispatcher,
-      redirect: "error",
+      redirect: options.redirect === "manual" ? "manual" : "error",
     });
-  } finally {
-    await dispatcher.close();
+    // close() waits for the body, which the caller reads after we return.
+    dispatcher.close().catch(() => {});
+    return response;
+  } catch (error) {
+    await dispatcher.destroy().catch(() => {});
+    throw error;
   }
 }

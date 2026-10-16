@@ -64,15 +64,8 @@ export function normalizeBasePath(value: unknown): string {
   return basePath.replace(/\/+$/, "");
 }
 
-/**
- * Real client IP behind a reverse proxy. `X-Forwarded-For`'s leftmost entry is
- * the original client; socket.remoteAddress is only the immediate peer, which
- * behind Traefik/Cloudflare is the proxy itself (often a loopback address).
- */
+/** Real client IP after Express has applied its configured proxy trust policy. */
 export function getClientIp(req: Request | IncomingMessage): string {
-  const forwarded = firstHeaderValue(req.headers["x-forwarded-for"]);
-  if (forwarded) return forwarded;
-
   if ("ip" in req && req.ip) return req.ip;
 
   return req.socket?.remoteAddress ?? "unknown";
@@ -116,10 +109,13 @@ export function getRequestOrigin(req: Request | IncomingMessage): string {
   return `${protocol}://${host}`;
 }
 
-export function getRequestOriginWithForceHTTPS(
+function getRequestOriginWithForceHTTPS(
   req: Request | IncomingMessage,
 ): string {
-  if (process.env.OIDC_FORCE_HTTPS === "true") {
+  // OIDC_FORCE_HTTPS is the 2.9 name, still read for one release.
+  const forceHttps =
+    process.env.EXTERNAL_FORCE_HTTPS ?? process.env.OIDC_FORCE_HTTPS;
+  if (forceHttps === "true") {
     const origin = getRequestOrigin(req);
     return origin.replace(/^http:/, "https:");
   }

@@ -3,59 +3,41 @@ import { getDb, getSqlite } from "../db/index.js";
 import { needsExplicitPersist, resolveDatabaseDialect } from "../db/dialect.js";
 import { primeSettingsCache, readCachedSetting } from "./settings-cache.js";
 import type { DatabaseContext } from "./database-context.js";
-import { WebauthnCredentialRepository } from "./webauthn-credential-repository.js";
-import { AiRepository } from "./ai-repository.js";
-import { AlertRepository } from "./alert-repository.js";
-import { AutomationRepository } from "./automation-repository.js";
 import { ApiKeyRepository } from "./api-key-repository.js";
 import { AuditLogRepository } from "./audit-log-repository.js";
-import { C2sTunnelPresetRepository } from "./c2s-tunnel-preset-repository.js";
-import { CommandHistoryRepository } from "./command-history-repository.js";
 import { CredentialRepository } from "./credential-repository.js";
-import { DashboardServiceLinkRepository } from "./dashboard-service-link-repository.js";
-import { DismissedAlertRepository } from "./dismissed-alert-repository.js";
-import { FileManagerBookmarkRepository } from "./file-manager-bookmark-repository.js";
-import { FleetRepository } from "./fleet-repository.js";
-import { FleetInventoryRepository } from "./fleet-inventory-repository.js";
-import { HomepageItemRepository } from "./homepage-item-repository.js";
-import { HomepageLayoutRepository } from "./homepage-layout-repository.js";
 import { HostFolderRepository } from "./host-folder-repository.js";
-import { HostHealthRepository } from "./host-health-repository.js";
-import { HostMetricsHistoryRepository } from "./host-metrics-history-repository.js";
-import { HostMetricsPreferenceRepository } from "./host-metrics-preference-repository.js";
-import { ProxmoxNodeHistoryRepository } from "./proxmox-node-history-repository.js";
 import { HostRepository } from "./host-repository.js";
 import { HostResolutionRepository } from "./host-resolution-repository.js";
 import { HostSidebarPreferenceRepository } from "./host-sidebar-preference-repository.js";
 import { CredentialSidebarPreferenceRepository } from "./credential-sidebar-preference-repository.js";
 import { UiPreferenceRepository } from "./ui-preference-repository.js";
-import { NetworkTopologyRepository } from "./network-topology-repository.js";
 import { OpenTabRepository } from "./open-tab-repository.js";
-import { OpksshTokenRepository } from "./opkssh-token-repository.js";
+import { PluginRepository } from "./plugin-repository.js";
+import { PluginStorageRepository } from "./plugin-storage-repository.js";
+import { PluginSettingsRepository } from "./plugin-settings-repository.js";
+import { HostDefaultsRepository } from "./host-defaults-repository.js";
+import { PluginMigrationRepository } from "./plugin-migration-repository.js";
+import { PluginInstallCountRepository } from "./plugin-install-count-repository.js";
+import { PluginPermissionGrantRepository } from "./plugin-permission-grant-repository.js";
+import { UserAuthRepository } from "./user-auth-repository.js";
 import { RbacAccessRepository } from "./rbac-access-repository.js";
+import { RbacPermissionRepository } from "./rbac-permission-repository.js";
 import { RecentActivityRepository } from "./recent-activity-repository.js";
 import { RoleRepository } from "./role-repository.js";
-import { SessionRecordingRepository } from "./session-recording-repository.js";
 import { SessionRepository } from "./session-repository.js";
-import { SessionShareRepository } from "./session-share-repository.js";
+import { CredentialAccessRepository } from "./credential-access-repository.js";
+import { SharedCredentialSecretsRepository } from "./shared-credential-secrets-repository.js";
+import { FolderAccessRepository } from "./folder-access-repository.js";
 import { SettingsRepository } from "./settings-repository.js";
+import { HostProtocolAuthRepository } from "./host-protocol-auth-repository.js";
 import { SharedHostAuthOverrideRepository } from "./shared-host-auth-override-repository.js";
 import { SharedHostSecretsRepository } from "./shared-host-secrets-repository.js";
-import { SnippetRepository } from "./snippet-repository.js";
 import { SshCredentialUsageRepository } from "./ssh-credential-usage-repository.js";
-import { SyncTombstoneRepository } from "./sync-tombstone-repository.js";
-import { SsoProviderRepository } from "./sso-provider-repository.js";
-import { TermixIdentityCaRepository } from "./termix-identity-ca-repository.js";
-import { TermixIdentityRepository } from "./termix-identity-repository.js";
-import { TmuxSessionTagRepository } from "./tmux-session-tag-repository.js";
-import { TransferRecentRepository } from "./transfer-recent-repository.js";
 import { TrustedDeviceRepository } from "./trusted-device-repository.js";
 import { UserDataExportRepository } from "./user-data-export-repository.js";
 import { UserPreferenceRepository } from "./user-preference-repository.js";
 import { UserRepository } from "./user-repository.js";
-import { VaultProfileRepository } from "./vault-profile-repository.js";
-import { VaultTokenRepository } from "./vault-token-repository.js";
-import { WorkspaceRepository } from "./workspace-repository.js";
 
 /**
  * The context every repository runs against.
@@ -67,7 +49,7 @@ import { WorkspaceRepository } from "./workspace-repository.js";
  * write.
  *
  * Both cross-dialect harnesses build a DatabaseContext themselves, so neither
- * exercises this function — see tests/database/repositories/factory-context.
+ * exercises this function, see tests/database/repositories/factory-context.
  */
 export function createCurrentRepositoryContext(): DatabaseContext {
   return {
@@ -82,7 +64,7 @@ export function createCurrentRepositoryContext(): DatabaseContext {
  * Only meaningful for SQLite, where the database lives in memory and has to be
  * serialised back to its encrypted file. On Postgres and MySQL the write is
  * already durable, so no hook is installed at all rather than one that does
- * nothing — repositories call it as `this.onWrite?.()`.
+ * nothing, repositories call it as `this.onWrite?.()`.
  */
 export function createCurrentRepositoryWriteHook(
   reason: string,
@@ -97,7 +79,7 @@ export function createCurrentRepositoryWriteHook(
  *
  * Marks the in-memory database dirty and lets DatabaseSaveTrigger's existing
  * debounce coalesce the actual serialize+encrypt, instead of forcing one on
- * every single sample. A lost 2-second window of telemetry on crash is
+ * every single sample. Losing up to 30 seconds of these on a crash is
  * acceptable; blocking the event loop that serves SSH traffic on every metric
  * sample is not.
  */
@@ -109,7 +91,7 @@ export function createCurrentRepositoryLazyWriteHook(
 }
 
 /**
- * Raw driver handle for the few synchronous call sites that cannot await —
+ * Raw driver handle for the few synchronous call sites that cannot await,
  * getCurrentSettingValue below, and settings reads during startup. Repositories
  * must not use this: they take a DatabaseContext, which is drizzle-only.
  * Porting to another engine means giving these callers an async path first.
@@ -137,34 +119,6 @@ export function getCurrentSettingValue(key: string): string | null {
   return row?.value ?? null;
 }
 
-export function createCurrentWebauthnCredentialRepository(): WebauthnCredentialRepository {
-  return new WebauthnCredentialRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("webauthn_credential_repository_write"),
-  );
-}
-
-export function createCurrentAiRepository(): AiRepository {
-  return new AiRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("ai_repository_write"),
-  );
-}
-
-export function createCurrentAlertRepository(): AlertRepository {
-  return new AlertRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("alert_repository_write"),
-  );
-}
-
-export function createCurrentAutomationRepository(): AutomationRepository {
-  return new AutomationRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("automation_repository_write"),
-  );
-}
-
 export function createCurrentApiKeyRepository(): ApiKeyRepository {
   return new ApiKeyRepository(
     createCurrentRepositoryContext(),
@@ -175,21 +129,8 @@ export function createCurrentApiKeyRepository(): ApiKeyRepository {
 export function createCurrentAuditLogRepository(): AuditLogRepository {
   return new AuditLogRepository(
     createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("audit_log_repository_write"),
-  );
-}
-
-export function createCurrentC2sTunnelPresetRepository(): C2sTunnelPresetRepository {
-  return new C2sTunnelPresetRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("c2s_tunnel_preset_repository_write"),
-  );
-}
-
-export function createCurrentCommandHistoryRepository(): CommandHistoryRepository {
-  return new CommandHistoryRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("command_history_repository_write"),
+    // Rows land on every audited call; the audited action saves on its own.
+    createCurrentRepositoryLazyWriteHook("audit_log_repository_write"),
   );
 }
 
@@ -200,100 +141,10 @@ export function createCurrentCredentialRepository(): CredentialRepository {
   );
 }
 
-export function createCurrentDashboardServiceLinkRepository(): DashboardServiceLinkRepository {
-  return new DashboardServiceLinkRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("dashboard_service_link_repository_write"),
-  );
-}
-
-export function createCurrentSyncTombstoneRepository(): SyncTombstoneRepository {
-  return new SyncTombstoneRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("sync_tombstone_repository_write"),
-  );
-}
-
-export function createCurrentDismissedAlertRepository(): DismissedAlertRepository {
-  return new DismissedAlertRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("dismissed_alert_repository_write"),
-  );
-}
-
-export function createCurrentFileManagerBookmarkRepository(): FileManagerBookmarkRepository {
-  return new FileManagerBookmarkRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("file_manager_bookmarks_repository_write"),
-  );
-}
-
-export function createCurrentFleetRepository(): FleetRepository {
-  return new FleetRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("fleet_repository_write"),
-  );
-}
-
-export function createCurrentFleetInventoryRepository(): FleetInventoryRepository {
-  return new FleetInventoryRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("fleet_inventory_repository_write"),
-  );
-}
-
-export function createCurrentHomepageItemRepository(): HomepageItemRepository {
-  return new HomepageItemRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("homepage_item_repository_write"),
-  );
-}
-
-export function createCurrentHomepageLayoutRepository(): HomepageLayoutRepository {
-  return new HomepageLayoutRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("homepage_layout_repository_write"),
-  );
-}
-
 export function createCurrentHostFolderRepository(): HostFolderRepository {
   return new HostFolderRepository(
     createCurrentRepositoryContext(),
     createCurrentRepositoryWriteHook("host_folder_repository_write"),
-  );
-}
-
-export function createCurrentHostHealthRepository(): HostHealthRepository {
-  return new HostHealthRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("host_health_repository_write"),
-  );
-}
-
-export function createCurrentHostMetricsHistoryRepository(): HostMetricsHistoryRepository {
-  return new HostMetricsHistoryRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryLazyWriteHook(
-      "host_metrics_history_repository_write",
-    ),
-  );
-}
-
-export function createCurrentHostMetricsPreferenceRepository(): HostMetricsPreferenceRepository {
-  return new HostMetricsPreferenceRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook(
-      "host_metrics_preference_repository_write",
-    ),
-  );
-}
-
-export function createCurrentProxmoxNodeHistoryRepository(): ProxmoxNodeHistoryRepository {
-  return new ProxmoxNodeHistoryRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryLazyWriteHook(
-      "proxmox_node_history_repository_write",
-    ),
   );
 }
 
@@ -339,13 +190,6 @@ export function createCurrentUiPreferenceRepository(): UiPreferenceRepository {
   );
 }
 
-export function createCurrentNetworkTopologyRepository(): NetworkTopologyRepository {
-  return new NetworkTopologyRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("network_topology_repository_write"),
-  );
-}
-
 export function createCurrentOpenTabRepository(): OpenTabRepository {
   return new OpenTabRepository(
     createCurrentRepositoryContext(),
@@ -353,10 +197,68 @@ export function createCurrentOpenTabRepository(): OpenTabRepository {
   );
 }
 
-export function createCurrentOpksshTokenRepository(): OpksshTokenRepository {
-  return new OpksshTokenRepository(
+export function createCurrentPluginRepository(): PluginRepository {
+  return new PluginRepository(
     createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("opkssh_token_repository_write"),
+    createCurrentRepositoryWriteHook("plugin_repository_write"),
+  );
+}
+
+export function createCurrentUserAuthRepository(): UserAuthRepository {
+  return new UserAuthRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("user_auth_repository_write"),
+  );
+}
+
+export function createCurrentPluginPermissionGrantRepository(): PluginPermissionGrantRepository {
+  return new PluginPermissionGrantRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook(
+      "plugin_permission_grant_repository_write",
+    ),
+  );
+}
+
+export function createCurrentPluginStorageRepository(): PluginStorageRepository {
+  return new PluginStorageRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("plugin_storage_repository_write"),
+  );
+}
+
+export function createCurrentHostDefaultsRepository(): HostDefaultsRepository {
+  return new HostDefaultsRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("host_defaults_repository_write"),
+  );
+}
+
+export function createCurrentPluginSettingsRepository(): PluginSettingsRepository {
+  return new PluginSettingsRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("plugin_settings_repository_write"),
+  );
+}
+
+export function createCurrentPluginInstallCountRepository(): PluginInstallCountRepository {
+  return new PluginInstallCountRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("plugin_install_count_repository_write"),
+  );
+}
+
+export function createCurrentPluginMigrationRepository(): PluginMigrationRepository {
+  return new PluginMigrationRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("plugin_migration_repository_write"),
+  );
+}
+
+export function createCurrentRbacPermissionRepository(): RbacPermissionRepository {
+  return new RbacPermissionRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("rbac_permission_repository_write"),
   );
 }
 
@@ -381,24 +283,14 @@ export function createCurrentRoleRepository(): RoleRepository {
   );
 }
 
-export function createCurrentSessionRecordingRepository(): SessionRecordingRepository {
-  return new SessionRecordingRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("session_recording_repository_write"),
-  );
-}
-
 export function createCurrentSessionRepository(): SessionRepository {
   return new SessionRepository(
     createCurrentRepositoryContext(),
     createCurrentRepositoryWriteHook("session_repository_write"),
-  );
-}
-
-export function createCurrentSessionShareRepository(): SessionShareRepository {
-  return new SessionShareRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("session_share_repository_write"),
+    // Activity timestamps are informational; the periodic flush persists them.
+    needsExplicitPersist(resolveDatabaseDialect())
+      ? () => DatabaseSaveTrigger.markDirty()
+      : undefined,
   );
 }
 
@@ -416,6 +308,13 @@ export function createCurrentSharedHostSecretsRepository(): SharedHostSecretsRep
   );
 }
 
+export function createCurrentHostProtocolAuthRepository(): HostProtocolAuthRepository {
+  return new HostProtocolAuthRepository(
+    createCurrentRepositoryContext(),
+    createCurrentRepositoryWriteHook("host_protocol_auth_repository_write"),
+  );
+}
+
 export function createCurrentSharedHostAuthOverrideRepository(): SharedHostAuthOverrideRepository {
   return new SharedHostAuthOverrideRepository(
     createCurrentRepositoryContext(),
@@ -425,52 +324,10 @@ export function createCurrentSharedHostAuthOverrideRepository(): SharedHostAuthO
   );
 }
 
-export function createCurrentSnippetRepository(): SnippetRepository {
-  return new SnippetRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("snippet_repository_write"),
-  );
-}
-
 export function createCurrentSshCredentialUsageRepository(): SshCredentialUsageRepository {
   return new SshCredentialUsageRepository(
     createCurrentRepositoryContext(),
     createCurrentRepositoryWriteHook("ssh_credential_usage_repository_write"),
-  );
-}
-
-export function createCurrentSsoProviderRepository(): SsoProviderRepository {
-  return new SsoProviderRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("sso_provider_repository_write"),
-  );
-}
-
-export function createCurrentTermixIdentityCaRepository(): TermixIdentityCaRepository {
-  return new TermixIdentityCaRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("termix_identity_ca_repository_write"),
-  );
-}
-
-export function createCurrentTermixIdentityRepository(): TermixIdentityRepository {
-  return new TermixIdentityRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("termix_identity_repository_write"),
-  );
-}
-
-export function createCurrentTmuxSessionTagRepository(): TmuxSessionTagRepository {
-  return new TmuxSessionTagRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("tmux_session_tag_repository_write"),
-  );
-}
-
-export function createCurrentTransferRecentRepository(): TransferRecentRepository {
-  return new TransferRecentRepository(
-    createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("transfer_recent_repository_write"),
   );
 }
 
@@ -499,24 +356,26 @@ export function createCurrentUserRepository(): UserRepository {
   );
 }
 
-export function createCurrentVaultProfileRepository(): VaultProfileRepository {
-  return new VaultProfileRepository(
+export function createCurrentFolderAccessRepository(): FolderAccessRepository {
+  return new FolderAccessRepository(
     createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("vault_profile_repository_write"),
+    createCurrentRepositoryWriteHook("folder_access_repository_write"),
   );
 }
 
-export function createCurrentVaultTokenRepository(): VaultTokenRepository {
-  return new VaultTokenRepository(
+export function createCurrentCredentialAccessRepository(): CredentialAccessRepository {
+  return new CredentialAccessRepository(
     createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("vault_token_repository_write"),
+    createCurrentRepositoryWriteHook("credential_access_repository_write"),
   );
 }
 
-export function createCurrentWorkspaceRepository(): WorkspaceRepository {
-  return new WorkspaceRepository(
+export function createCurrentSharedCredentialSecretsRepository(): SharedCredentialSecretsRepository {
+  return new SharedCredentialSecretsRepository(
     createCurrentRepositoryContext(),
-    createCurrentRepositoryWriteHook("workspace_repository_write"),
+    createCurrentRepositoryWriteHook(
+      "shared_credential_secrets_repository_write",
+    ),
   );
 }
 
@@ -544,8 +403,8 @@ let refreshTimer: NodeJS.Timeout | null = null;
  *
  * The cache is per-process and updated in the process that writes. That is
  * enough for SQLite, where there is only ever one process. On Postgres and
- * MySQL — which exist here precisely so more than one instance can share the
- * data — a setting changed on one replica would otherwise never reach the
+ * MySQL, which exist here precisely so more than one instance can share the
+ * data, a setting changed on one replica would otherwise never reach the
  * others, because the synchronous read has no way to go back to the database.
  *
  * Periodic re-priming does not make the value immediately consistent. It bounds

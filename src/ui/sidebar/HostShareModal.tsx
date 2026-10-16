@@ -1,7 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
-import { useTranslation } from "react-i18next";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  ArrowLeft,
+  getFolderAccess,
+  revokeFolderAccess,
+  type FolderAccessRule,
+} from "@/api/rbac-api";
+import { useTranslation } from "react-i18next";
+import { InlineView, useConfirm } from "@/components/surface/surface-scope";
+import {
   Check,
   ListChecks,
   Search,
@@ -27,12 +32,16 @@ import {
   updateHostAccess,
   revokeHostAccess,
   getUserList,
+  getUserInfo,
   getRoles,
   type AccessRecord,
   type SharePermissionLevel,
   type ShareTarget,
 } from "@/main-axios";
 import type { Host } from "@/types/ui-types";
+import { Select2 } from "@/components/select2";
+import { DocsLink } from "@/components/docs-link";
+import { roleLabel } from "@/lib/role-label";
 
 const PERMISSION_LEVELS: SharePermissionLevel[] = [
   "connect",
@@ -64,6 +73,7 @@ export function HostShareModal({
   folder?: string | null;
 }) {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const isFolderShare = !host && !!folder;
   const [targetTab, setTargetTab] = useState<"user" | "role">("user");
   const [search, setSearch] = useState("");
@@ -104,14 +114,18 @@ export function HostShareModal({
         : Promise.resolve({ accessList: [] }),
       getUserList().catch(() => ({ users: [] })),
       getRoles().catch(() => ({ roles: [] })),
+      getUserInfo().catch(() => null),
     ])
-      .then(([accessRes, usersRes, rolesRes]) => {
+      .then(([accessRes, usersRes, rolesRes, me]) => {
         setAccessList(accessRes.accessList ?? []);
+        // Nobody shares with themselves.
         setShareUsers(
-          (usersRes.users ?? []).map((u) => ({
-            id: String(u.id ?? u.userId),
-            username: u.username,
-          })),
+          (usersRes.users ?? [])
+            .map((u) => ({
+              id: String(u.id ?? u.userId),
+              username: u.username,
+            }))
+            .filter((u) => u.id !== me?.userId),
         );
         setShareRoles(
           (rolesRes.roles ?? [])
@@ -177,6 +191,19 @@ export function HostShareModal({
     setAccessList(res.accessList ?? []);
   }
 
+  const [folderRules, setFolderRules] = useState<FolderAccessRule[]>([]);
+  const refreshFolderRules = useCallback(async () => {
+    if (!isFolderShare || !folder) return;
+    try {
+      setFolderRules((await getFolderAccess(folder)).rules);
+    } catch {
+      setFolderRules([]);
+    }
+  }, [isFolderShare, folder]);
+  useEffect(() => {
+    if (open) void refreshFolderRules();
+  }, [open, refreshFolderRules]);
+
   async function handleShare() {
     if ((!host && !folder) || selectedCount === 0) return;
     const targets: ShareTarget[] = [
@@ -196,6 +223,7 @@ export function HostShareModal({
           permissionLevel,
           ...(durationHours ? { durationHours } : {}),
         });
+        await refreshFolderRules();
         setFolderShareSummary({
           hostsShared: result.hostsShared,
           hostsTotal: result.hostsTotal,
@@ -258,23 +286,20 @@ export function HostShareModal({
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-sidebar">
-      {/* Header */}
-      <button
-        onClick={onClose}
-        className="flex items-center gap-2 px-3 py-2 shrink-0 border-b border-border text-xs text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-      >
-        <ArrowLeft className="size-3.5 shrink-0" />
-        <span className="truncate">
-          {isFolderShare
-            ? t("hosts.shareFolderTitle", { name: folder ?? "" })
-            : t("hosts.shareHostTitle", { name: host?.name ?? "" })}
-        </span>
-      </button>
-
+    <InlineView
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      icon={<Share2 className="size-4" />}
+      title={
+        isFolderShare
+          ? t("hosts.shareFolderTitle", { name: folder ?? "" })
+          : t("hosts.shareHostTitle", { name: host?.name ?? "" })
+      }
+      bare
+    >
       {sharingLoadError && (
         <div className="flex items-start gap-2 px-3 py-2 shrink-0 border-b border-destructive/30 bg-destructive/5 text-xs text-destructive">
           <Shield className="size-3.5 shrink-0 mt-0.5" />
@@ -289,14 +314,7 @@ export function HostShareModal({
             <Users className="size-3.5" />
             {t("hosts.sharing.shareWithSection")}
           </div>
-          <a
-            href="https://docs.termix.site/features/authentication/rbac"
-            target="_blank"
-            rel="noreferrer"
-            className="text-[10px] text-accent-brand hover:underline shrink-0"
-          >
-            {t("hosts.docsLink")}
-          </a>
+          <DocsLink core="sharing">{t("hosts.docsLink")}</DocsLink>
         </div>
 
         <div className="flex gap-1.5">
@@ -399,7 +417,7 @@ export function HostShareModal({
                     </div>
                     <Shield className="size-3 text-muted-foreground shrink-0" />
                     <span className="truncate">
-                      {role.displayName || role.name}
+                      {roleLabel(t, role.displayName || role.name)}
                     </span>
                   </button>
                 );
@@ -412,7 +430,7 @@ export function HostShareModal({
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               {t("hosts.sharing.permissionLevelLabel")}
             </span>
-            <select
+            <Select2
               value={permissionLevel}
               onChange={(e) =>
                 setPermissionLevel(e.target.value as SharePermissionLevel)
@@ -424,7 +442,7 @@ export function HostShareModal({
                   {t(`hosts.sharing.levels.${level}.label`)}
                 </option>
               ))}
-            </select>
+            </Select2>
           </div>
 
           <DropdownMenu>
@@ -499,6 +517,53 @@ export function HostShareModal({
         </div>
       )}
 
+      {isFolderShare && folderRules.length > 0 && (
+        <div className="flex flex-col gap-1 px-3 pb-2 shrink-0">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+            {t("hosts.sharing.folderRulesTitle")}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {t("hosts.sharing.folderRulesHint")}
+          </span>
+          {folderRules.map((rule) => (
+            <div
+              key={rule.id}
+              className="flex items-center gap-2 text-xs px-1 py-0.5"
+            >
+              <span className="flex-1 truncate">
+                {rule.targetType === "role"
+                  ? roleLabel(t, rule.roleDisplayName) || rule.roleName
+                  : rule.username}
+              </span>
+              <span className="text-[10px] uppercase text-muted-foreground">
+                {rule.permissionLevel}
+              </span>
+              <button
+                type="button"
+                className="text-[10px] text-muted-foreground hover:text-destructive"
+                title={t("hosts.sharing.folderRuleRemove")}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: t("sharing.revokeConfirm", {
+                      name:
+                        rule.username ??
+                        roleLabel(t, rule.roleDisplayName) ??
+                        rule.roleName ??
+                        "",
+                    }),
+                    confirmLabel: t("sharing.revoke"),
+                  });
+                  if (ok)
+                    void revokeFolderAccess(rule.id).then(refreshFolderRules);
+                }}
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Current access: takes remaining space, scrolls independently */}
       {!isFolderShare && (
         <div className="flex flex-col flex-1 min-h-0">
@@ -534,7 +599,7 @@ export function HostShareModal({
                       )}
                       <span className="font-semibold truncate">
                         {record.username ??
-                          record.roleDisplayName ??
+                          roleLabel(t, record.roleDisplayName) ??
                           record.roleName ??
                           record.userId ??
                           record.roleId}
@@ -570,6 +635,17 @@ export function HostShareModal({
                         size="sm"
                         className="h-6 text-[10px] px-2 text-destructive hover:bg-destructive/10"
                         onClick={async () => {
+                          const ok = await confirm({
+                            title: t("sharing.revokeConfirm", {
+                              name:
+                                record.username ??
+                                roleLabel(t, record.roleDisplayName) ??
+                                record.roleName ??
+                                "",
+                            }),
+                            confirmLabel: t("sharing.revoke"),
+                          });
+                          if (!ok) return;
                           try {
                             await revokeHostAccess(
                               Number(host!.id),
@@ -620,6 +696,6 @@ export function HostShareModal({
           </div>
         </div>
       )}
-    </div>
+    </InlineView>
   );
 }

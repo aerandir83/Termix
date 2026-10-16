@@ -48,6 +48,14 @@ vi.mock("../../../utils/permission-manager.js", () => ({
   PermissionManager: {
     getInstance: () => ({
       canAccessHost: async () => state.access,
+      requirePermission:
+        () =>
+        (
+          _req: express.Request,
+          _res: express.Response,
+          next: express.NextFunction,
+        ) =>
+          next(),
       requireAdmin:
         () =>
         (
@@ -255,15 +263,20 @@ describe("shared host authentication override routes", () => {
     expect(unauthenticatedResponse.status).toBe(401);
   });
 
-  it("rejects recognized but unsupported protocols and invalid protocol names", async () => {
-    const unsupportedResponse = await invoke("get", {}, "rdp");
-    expect(unsupportedResponse).toEqual({
-      status: 400,
-      body: {
-        error: "RDP authentication overrides are not supported yet",
-      },
-    });
+  it("serves any protocol a plugin declares and rejects the rest", async () => {
+    const { setHostProtocolSource } =
+      await import("../../../hosts/protocol-auth/registry.js");
+    setHostProtocolSource(() => [
+      { id: "spice", pluginId: "spice-plugin", pluginName: "Spice" },
+    ]);
+    const declared = await invoke("get", {}, "spice");
+    setHostProtocolSource(() => []);
+    expect(declared.status).toBe(200);
+    expect(declared.body.protocol).toBe("spice");
     expect(state.writes).toEqual([]);
+
+    const undeclared = await invoke("get", {}, "spice");
+    expect(undeclared.status).toBe(400);
 
     const invalidResponse = await invoke("get", {}, "smtp");
     expect(invalidResponse).toEqual({

@@ -1,0 +1,279 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { readManifest } from "../lib/plugin-dir.mjs";
+
+/**
+ * The manifest rules live in src/manifest.ts, which the server uses too, so
+ * there is one implementation rather than a copy here that drifts.
+ */
+export async function loadSdkModule(name) {
+  const entry = new URL(`../../dist/${name}.js`, import.meta.url);
+  if (!fs.existsSync(fileURLToPath(entry))) {
+    throw new Error("The plugin SDK is not built yet. Run: npm run build:sdk");
+  }
+  return import(entry.href);
+}
+
+export async function validate({ cwd }) {
+  const raw = readManifest(cwd);
+  const { parseManifest } = await loadSdkModule("manifest");
+  const { errors } = parseManifest(raw);
+
+  const problems = [...errors];
+
+  // The manifest names files. They have to be there.
+  const referenced = [
+    raw.backend ?? "dist/backend.js",
+    raw.frontend ?? "dist/frontend.js",
+    raw.locales ?? "locales",
+  ];
+  for (const rel of referenced) {
+    if (!fs.existsSync(path.join(cwd, rel))) {
+      problems.push(`manifest references ${rel}, which does not exist`);
+    }
+  }
+
+  problems.push(
+    ...(await validateMigrations(cwd, raw.id ?? path.basename(cwd))),
+  );
+  problems.push(...validateNativeDependencies(cwd, raw));
+  problems.push(...validatePackage(cwd, raw));
+  problems.push(...(await validateChangelogFile(cwd, raw)));
+
+  for (const warning of docsWarnings(cwd, raw)) {
+    console.warn(`  warn  ${warning}`);
+  }
+
+  if (problems.length > 0) {
+    for (const problem of problems) console.error(`  ${problem}`);
+    throw new Error(`${raw.id ?? path.basename(cwd)}: manifest is not valid.`);
+  }
+
+  console.log(`ok  ${raw.id ?? path.basename(cwd)}`);
+}
+
+/** Env vars core sets for everyone, so a plugin need not list them. */
+const CORE_ENV = new Set([
+  "DATA_DIR",
+  "NODE_ENV",
+  "PORT",
+  "BASE_PATH",
+  "VERSION",
+  "HOME",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "PATH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "USERPROFILE",
+  "ELECTRON_EMBEDDED",
+]);
+
+const ENV_READS = [
+  /process\.env\.([A-Z][A-Z0-9_]*)/g,
+  /process\.env\[\s*["'`]([A-Z][A-Z0-9_]*)["'`]\s*\]/g,
+  /\benv\.([A-Z][A-Z0-9_]*)\b/g,
+  /\benv\[\s*["'`]([A-Z][A-Z0-9_]*)["'`]\s*\]/g,
+];
+
+function walkSources(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkSources(full, out);
+    else if (/\.(ts|tsx|js|mjs|cjs)$/.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Docs gaps that do not block a release: no docs/index.md, or a process.env
+ * read the manifest does not list in env.
+ */
+export function docsWarnings(cwd, raw) {
+  const warnings = [];
+  if (!fs.existsSync(path.join(cwd, "docs", "index.md"))) {
+    warnings.push("docs/index.md is missing, so the plugin has no docs page");
+  }
+  const declared = new Set(
+    Array.isArray(raw.env) ? raw.env.map((e) => e?.name) : [],
+  );
+  const missing = new Set();
+  for (const file of walkSources(path.join(cwd, "src"))) {
+    const text = fs.readFileSync(file, "utf8");
+    for (const pattern of ENV_READS) {
+      for (const match of text.matchAll(pattern)) {
+        const name = match[1];
+        if (!declared.has(name) && !CORE_ENV.has(name)) missing.add(name);
+      }
+    }
+  }
+  for (const name of [...missing].sort()) {
+    warnings.push(`reads ${name} but manifest env does not list it`);
+  }
+  return warnings;
+}
+
+/**
+ * package.json has to agree with the manifest: the same version, and a real
+ * SDK range rather than "*", so a plugin built against a newer SDK says so.
+ */
+function validatePackage(cwd, raw) {
+  const problems = [];
+  const pkgPath = path.join(cwd, "package.json");
+  if (!fs.existsSync(pkgPath)) return problems;
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+
+  if (pkg.version && raw.version && pkg.version !== raw.version) {
+    problems.push(
+      `package.json version ${pkg.version} does not match manifest version ${raw.version}`,
+    );
+  }
+
+  const sdkRange =
+    pkg.peerDependencies?.["@termix-ssh/plugin-sdk"] ??
+    pkg.dependencies?.["@termix-ssh/plugin-sdk"] ??
+    pkg.devDependencies?.["@termix-ssh/plugin-sdk"];
+  if (!sdkRange) {
+    problems.push("package.json does not depend on @termix-ssh/plugin-sdk");
+  } else if (sdkRange === "*" || sdkRange === "latest") {
+    problems.push(
+      `@termix-ssh/plugin-sdk is "${sdkRange}"; pin a range such as "^1.0.0"`,
+    );
+  }
+  return problems;
+}
+
+/**
+ * CHANGELOG.md is optional, but when it is there it has to parse and its
+ * newest release has to match the manifest version.
+ */
+async function validateChangelogFile(cwd, raw) {
+  if (fs.existsSync(path.join(cwd, "CHANGELOG.json"))) {
+    return [
+      "CHANGELOG.json is no longer read; move the release notes to CHANGELOG.md",
+    ];
+  }
+  const mdPath = path.join(cwd, "CHANGELOG.md");
+  if (!fs.existsSync(mdPath)) return [];
+  const { validateChangelog } = await loadSdkModule("changelog");
+  return validateChangelog(fs.readFileSync(mdPath, "utf8"), raw.version).map(
+    (problem) => `CHANGELOG.md: ${problem}`,
+  );
+}
+
+/**
+ * A native dependency has to actually be a real dependency of the plugin, or
+ * the build's external declaration points at nothing node_modules can
+ * resolve at runtime.
+ */
+function validateNativeDependencies(cwd, raw) {
+  const problems = [];
+  const nativeDependencies = raw.nativeDependencies ?? [];
+  if (nativeDependencies.length === 0) return problems;
+
+  const pkgPath = path.join(cwd, "package.json");
+  const pkg = fs.existsSync(pkgPath)
+    ? JSON.parse(fs.readFileSync(pkgPath, "utf8"))
+    : {};
+  const deps = { ...pkg.dependencies };
+
+  for (const name of nativeDependencies) {
+    if (!(name in deps)) {
+      problems.push(
+        `nativeDependencies names "${name}", which is not in this plugin's own package.json dependencies`,
+      );
+    }
+  }
+
+  return problems;
+}
+
+const DIALECTS = ["sqlite", "postgres", "mysql"];
+
+/**
+ * Checks that a plugin's migrations only touch tables it owns.
+ *
+ * The server enforces this too, because a plugin installed from a tarball
+ * never ran this command. Here it is a build-time error with a file name
+ * attached, rather than a plugin that fails to activate later.
+ */
+async function validateMigrations(cwd, pluginId) {
+  const { LEGACY_TABLE_OWNERS: LEGACY_TABLES } =
+    await import("../../dist/db.js");
+  const { collectOwnedIndexes, findUnownedTableWrites } =
+    await import("../../dist/ddl.js");
+
+  const problems = [];
+  const legacy = new Set(
+    Object.entries(LEGACY_TABLES)
+      .filter(([, owner]) => owner === pluginId)
+      .map(([table]) => table),
+  );
+  const root = path.join(cwd, "migrations");
+  if (!fs.existsSync(root)) return problems;
+
+  const present = DIALECTS.filter((dialect) =>
+    fs.existsSync(path.join(root, dialect)),
+  );
+  for (const dialect of DIALECTS) {
+    if (present.length > 0 && !present.includes(dialect)) {
+      problems.push(`migrations/${dialect} is missing`);
+    }
+  }
+
+  const byDialect = new Map();
+  for (const dialect of present) {
+    const dir = path.join(root, dialect);
+    const files = fs
+      .readdirSync(dir)
+      .filter((file) => file.endsWith(".sql"))
+      .sort();
+    byDialect.set(dialect, files);
+    const sqls = files.map((file) =>
+      fs.readFileSync(path.join(dir, file), "utf8"),
+    );
+    const indexes = collectOwnedIndexes(pluginId, sqls, legacy);
+
+    for (const [index, file] of files.entries()) {
+      if (!/^\d{4}_[a-z0-9_]+\.sql$/.test(file)) {
+        problems.push(
+          `migrations/${dialect}/${file} must be named NNNN_name.sql, lower snake_case`,
+        );
+      }
+
+      const sql = sqls[index];
+      for (const problem of findUnownedTableWrites(
+        pluginId,
+        sql,
+        legacy,
+        indexes,
+      )) {
+        problems.push(`migrations/${dialect}/${file} ${problem}`);
+      }
+    }
+  }
+
+  // A migration that exists for one engine and not another leaves that
+  // deployment without the table, which is how alert_rules ended up
+  // SQLite-only in core.
+  const [first, ...rest] = present;
+  for (const dialect of rest) {
+    const a = byDialect.get(first);
+    const b = byDialect.get(dialect);
+    for (const file of a) {
+      if (!b.includes(file)) {
+        problems.push(`migrations/${dialect}/${file} is missing`);
+      }
+    }
+    for (const file of b) {
+      if (!a.includes(file)) {
+        problems.push(`migrations/${first}/${file} is missing`);
+      }
+    }
+  }
+
+  return problems;
+}

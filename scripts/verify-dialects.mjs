@@ -2,8 +2,8 @@
  * Runs the repository layer against a real Postgres or MySQL server.
  *
  * The unit tests only ever see SQLite, so the parts of this codebase that
- * differ per engine — the RETURNING replacements, the read-then-write
- * transactions, the value encoders — have no coverage there at all. This is
+ * differ per engine (the RETURNING replacements, the read-then-write
+ * transactions, the value encoders) have no coverage there at all. This is
  * what covers them, and it needs a live server, which is why it is a script
  * rather than a test.
  *
@@ -12,7 +12,7 @@
  *   npm run verify:dialect -- mysql://user:pass@host:3306/db
  *
  * Applies the migrations first, through the same runRemoteMigrations() the
- * application uses at startup — so a broken migration fails here rather than in
+ * application uses at startup, so a broken migration fails here rather than in
  * production. Writes real rows: point it at a scratch database.
  */
 
@@ -40,7 +40,7 @@ const { drizzle } = await import(
   dialect === "postgres" ? "drizzle-orm/node-postgres" : "drizzle-orm/mysql2"
 );
 
-// No schema option on purpose — see connect.ts.
+// No schema option on purpose, see connect.ts.
 const db = drizzle(url);
 const context = { dialect, drizzle: db };
 
@@ -87,7 +87,7 @@ check("insert returns the stored row", created?.username, "before");
 check("boolean true survives the round trip", created?.isAdmin, true);
 
 // updateReturning must report the state AFTER the write. Reading first would
-// return the value the update replaced — silently, with no error.
+// return the value the update replaced, silently, with no error.
 const updated = await users.update(userId, { username: "after" });
 check("update returns the new value", updated?.username, "after");
 
@@ -131,6 +131,54 @@ check(
 
 await hosts.deleteForUser(userId, host.id);
 check("host really deleted", await hosts.findById(host.id), null);
+
+// A plugin's own tables. The DDL is emitted from a table definition rather
+// than written by hand, so this is what proves the emitter's output is valid
+// on a real engine - the unit tests can only snapshot the string.
+const { defineTable, id, varchar, text, refUser, timestamp } =
+  await import("../packages/plugin-sdk/dist/db.js");
+const { createTableSql, dropTableSql } =
+  await import("../packages/plugin-sdk/dist/ddl.js");
+const { sql: raw } = await import("drizzle-orm");
+
+const pluginTable = defineTable(
+  "verify_note",
+  {
+    id: id(),
+    userId: refUser(),
+    title: varchar(200).notNull(),
+    body: text(),
+    createdAt: timestamp().notNull().defaultNow(),
+  },
+  { indexes: [{ name: "idx_verify_note_user", columns: ["userId"] }] },
+);
+
+const pluginId = "verify";
+try {
+  for (const statement of createTableSql(dialect, pluginId, pluginTable)) {
+    await db.execute(raw.raw(statement));
+  }
+  check("plugin table DDL is accepted", true, true);
+
+  await db.execute(
+    raw.raw(
+      `INSERT INTO p_verify_verify_note (user_id, title) VALUES ('${userId}', 'from verify')`,
+    ),
+  );
+  const rows = await db.execute(
+    raw.raw("SELECT title FROM p_verify_verify_note"),
+  );
+  const list = Array.isArray(rows) ? rows : (rows?.rows ?? []);
+  check("plugin table round-trips a row", list.length > 0, true);
+} catch (error) {
+  check(`plugin table DDL is accepted (${error.message})`, false, true);
+} finally {
+  try {
+    await db.execute(raw.raw(dropTableSql(dialect, pluginId, pluginTable)));
+  } catch {
+    // Best effort: the scratch database is the caller's to clean.
+  }
+}
 
 console.log(
   failures === 0

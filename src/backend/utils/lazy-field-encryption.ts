@@ -7,39 +7,21 @@ export class LazyFieldEncryption {
   private static readonly LEGACY_FIELD_NAME_MAP: Record<string, string> = {
     key_password: "keyPassword",
     sudo_password: "sudoPassword",
-    autostart_password: "autostartPassword",
-    autostart_key: "autostartKey",
-    autostart_key_password: "autostartKeyPassword",
     socks5_password: "socks5Password",
-    rdp_password: "rdpPassword",
-    vnc_password: "vncPassword",
-    telnet_password: "telnetPassword",
-    ard_password: "ardPassword",
     private_key: "privateKey",
     public_key: "publicKey",
     password_hash: "passwordHash",
-    client_secret: "clientSecret",
     totp_secret: "totpSecret",
     totp_backup_codes: "totpBackupCodes",
-    oidc_identifier: "oidcIdentifier",
 
     keyPassword: "key_password",
     sudoPassword: "sudo_password",
-    autostartPassword: "autostart_password",
-    autostartKey: "autostart_key",
-    autostartKeyPassword: "autostart_key_password",
     socks5Password: "socks5_password",
-    rdpPassword: "rdp_password",
-    vncPassword: "vnc_password",
-    telnetPassword: "telnet_password",
-    ardPassword: "ard_password",
     privateKey: "private_key",
     publicKey: "public_key",
     passwordHash: "password_hash",
-    clientSecret: "client_secret",
     totpSecret: "totp_secret",
     totpBackupCodes: "totp_backup_codes",
-    oidcIdentifier: "oidc_identifier",
   };
 
   static isPlaintextField(value: string): boolean {
@@ -99,27 +81,6 @@ export class LazyFieldEncryption {
           }
         }
 
-        // Guac hosts migrated from single-protocol: rdpPassword/vncPassword/telnetPassword
-        // columns were populated by copying the encrypted `password` blob. Try decrypting
-        // under the original field name before giving up.
-        if (
-          fieldName === "rdpPassword" ||
-          fieldName === "vncPassword" ||
-          fieldName === "telnetPassword"
-        ) {
-          try {
-            const decrypted = FieldCrypto.decryptField(
-              fieldValue,
-              userKEK,
-              recordId,
-              "password",
-            );
-            return decrypted;
-          } catch {
-            // not encrypted as "password" either
-          }
-        }
-
         const sensitiveFields = [
           "totpSecret",
           "totpBackupCodes",
@@ -127,18 +88,9 @@ export class LazyFieldEncryption {
           "key",
           "keyPassword",
           "sudoPassword",
-          "autostartPassword",
-          "autostartKey",
-          "autostartKeyPassword",
           "socks5Password",
-          "rdpPassword",
-          "vncPassword",
-          "telnetPassword",
-          "ardPassword",
           "privateKey",
           "publicKey",
-          "clientSecret",
-          "oidcIdentifier",
         ];
 
         if (sensitiveFields.includes(fieldName)) {
@@ -282,17 +234,7 @@ export class LazyFieldEncryption {
     privateKey: "private_key",
     publicKey: "public_key",
     sudoPassword: "sudo_password",
-    autostartPassword: "autostart_password",
-    autostartKey: "autostart_key",
-    autostartKeyPassword: "autostart_key_password",
     socks5Password: "socks5_password",
-    rdpPassword: "rdp_password",
-    vncPassword: "vnc_password",
-    telnetPassword: "telnet_password",
-    totpSecret: "totp_secret",
-    totpBackupCodes: "totp_backup_codes",
-    clientSecret: "client_secret",
-    oidcIdentifier: "oidc_identifier",
   };
 
   static getSensitiveFieldsForTable(tableName: string): string[] {
@@ -302,14 +244,7 @@ export class LazyFieldEncryption {
         "key",
         "keyPassword",
         "sudoPassword",
-        "autostartPassword",
-        "autostartKey",
-        "autostartKeyPassword",
         "socks5Password",
-        "rdpPassword",
-        "vncPassword",
-        "telnetPassword",
-        "ardPassword",
       ],
       ssh_credentials: [
         "password",
@@ -318,7 +253,6 @@ export class LazyFieldEncryption {
         "privateKey",
         "publicKey",
       ],
-      users: ["totpSecret", "totpBackupCodes"],
     };
 
     return sensitiveFieldsMap[tableName] || [];
@@ -439,33 +373,6 @@ export class LazyFieldEncryption {
             table: "ssh_credentials",
             recordId: credential.id.toString(),
             fields: credentialPlaintextFields,
-          });
-        }
-      }
-
-      const user = store.getUserRecord(userId);
-      if (user) {
-        const sensitiveFields = this.getSensitiveFieldsForTable("users");
-        const userPlaintextFields: string[] = [];
-
-        for (const field of sensitiveFields) {
-          const column = this.propertyToColumn(field);
-          const value = user[column];
-          if (
-            typeof value === "string" &&
-            value &&
-            this.fieldNeedsMigration(value, userKEK, userId, field)
-          ) {
-            userPlaintextFields.push(field);
-            needsMigration = true;
-          }
-        }
-
-        if (userPlaintextFields.length > 0) {
-          plaintextFields.push({
-            table: "users",
-            recordId: userId,
-            fields: userPlaintextFields,
           });
         }
       }

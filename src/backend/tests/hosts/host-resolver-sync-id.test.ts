@@ -11,7 +11,6 @@ vi.mock("../../database/repositories/factory.js", () => ({
     findHostOwnerId,
     findHostById,
   }),
-  createCurrentVaultProfileRepository: () => ({}),
   createCurrentUserRepository: () => ({ findById: vi.fn() }),
 }));
 
@@ -27,7 +26,7 @@ vi.mock("../../utils/shared-host-auth-resolver.js", () => ({
 /**
  * A numeric host id belongs to whichever database produced it. Resolving the
  * desktop app's id against a sync server's table lands on whatever host owns
- * that number there — a different machine, with its own address, credentials
+ * that number there, a different machine, with its own address, credentials
  * and host key. `sync_id` is the same string on both sides.
  */
 describe("resolveHostBySyncId", () => {

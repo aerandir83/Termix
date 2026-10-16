@@ -3,48 +3,53 @@ import { initReactI18next } from "react-i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
 
 import enTranslation from "../locales/en.json";
+import { TRANSLATED_LANGUAGES } from "./languages";
 
 type LocaleModule = { default: ResourceKey };
 
-const localeLoaders = {
-  af: () => import("../locales/translated/af_ZA.json"),
-  ar: () => import("../locales/translated/ar_SA.json"),
-  bn: () => import("../locales/translated/bn_BD.json"),
-  bg: () => import("../locales/translated/bg_BG.json"),
-  ca: () => import("../locales/translated/ca_ES.json"),
-  cs: () => import("../locales/translated/cs_CZ.json"),
-  da: () => import("../locales/translated/da_DK.json"),
-  de: () => import("../locales/translated/de_DE.json"),
-  el: () => import("../locales/translated/el_GR.json"),
-  "es-ES": () => import("../locales/translated/es_ES.json"),
-  fi: () => import("../locales/translated/fi_FI.json"),
-  fr: () => import("../locales/translated/fr_FR.json"),
-  he: () => import("../locales/translated/he_IL.json"),
-  hi: () => import("../locales/translated/hi_IN.json"),
-  hu: () => import("../locales/translated/hu_HU.json"),
-  id: () => import("../locales/translated/id_ID.json"),
-  it: () => import("../locales/translated/it_IT.json"),
-  ja: () => import("../locales/translated/ja_JP.json"),
-  ko: () => import("../locales/translated/ko_KR.json"),
-  nl: () => import("../locales/translated/nl_NL.json"),
-  no: () => import("../locales/translated/no_NO.json"),
-  pl: () => import("../locales/translated/pl_PL.json"),
-  "pt-PT": () => import("../locales/translated/pt_PT.json"),
-  "pt-BR": () => import("../locales/translated/pt_BR.json"),
-  ro: () => import("../locales/translated/ro_RO.json"),
-  ru: () => import("../locales/translated/ru_RU.json"),
-  sr: () => import("../locales/translated/sr_SP.json"),
-  "sv-SE": () => import("../locales/translated/sv_SE.json"),
-  th: () => import("../locales/translated/th_TH.json"),
-  tr: () => import("../locales/translated/tr_TR.json"),
-  uk: () => import("../locales/translated/uk_UA.json"),
-  vi: () => import("../locales/translated/vi_VN.json"),
-  "zh-CN": () => import("../locales/translated/zh_CN.json"),
-  "zh-TW": () => import("../locales/translated/zh_TW.json"),
-} satisfies Record<string, () => Promise<LocaleModule>>;
+/** i18n code -> translated file name, shared by core and plugin locales. */
+export const LOCALE_FILES: Record<string, string> = Object.fromEntries(
+  TRANSLATED_LANGUAGES.map(({ code, file }) => [code, file]),
+);
+
+const translatedFiles = import.meta.glob<LocaleModule>(
+  "../locales/translated/*.json",
+);
+
+const localeLoaders: Record<string, () => Promise<LocaleModule>> =
+  Object.fromEntries(
+    Object.entries(LOCALE_FILES).map(([code, file]) => [
+      code,
+      () => {
+        const load = translatedFiles[`../locales/translated/${file}.json`];
+        return load ? load() : Promise.reject(new Error(`no ${file}`));
+      },
+    ]),
+  );
+
+/**
+ * Loads a plugin namespace. Set by the plugin loader; until then a plugin
+ * namespace resolves to nothing and keys fall back to core.
+ */
+export type PluginLocaleResolver = (
+  namespace: string,
+  language: string,
+  file: string,
+) => Promise<ResourceKey | null>;
+
+let pluginLocaleResolver: PluginLocaleResolver | null = null;
+
+export function setPluginLocaleResolver(
+  resolver: PluginLocaleResolver | null,
+): void {
+  pluginLocaleResolver = resolver;
+}
 
 export const supportedLngs = ["en", ...Object.keys(localeLoaders)];
 const PENDING_LOGIN_LANGUAGE_KEY = "termix-pending-login-language";
+
+/** Core strings. Each plugin gets a namespace named after its id. */
+export const CORE_NAMESPACE = "translation";
 
 export function normalizeLanguageCode(language?: string | null): string {
   if (!language) return "en";
@@ -57,15 +62,40 @@ export function normalizeLanguageCode(language?: string | null): string {
   );
   if (exactMatch) return exactMatch;
 
-  const baseLanguage = normalized.split("-")[0];
-  return supportedLngs.includes(baseLanguage) ? baseLanguage : "en";
+  const baseLanguage = normalized.split("-")[0].toLowerCase();
+  if (supportedLngs.includes(baseLanguage)) return baseLanguage;
+
+  // Regional variants we don't ship (es-MX, pt, sv) use the closest one we do.
+  if (baseLanguage === "zh") {
+    return /-(tw|hk|mo|hant)\b/i.test(normalized) ? "zh-TW" : "zh-CN";
+  }
+  if (baseLanguage === "nb" || baseLanguage === "nn") return "no";
+  if (baseLanguage === "pt") return "pt-BR";
+  return (
+    supportedLngs.find((supported) =>
+      supported.toLowerCase().startsWith(`${baseLanguage}-`),
+    ) ?? "en"
+  );
 }
 
 const localeBackend: BackendModule = {
   type: "backend",
   init: () => {},
-  read: (language, _namespace, callback) => {
+  read: (language, namespace, callback) => {
     const normalizedLanguage = normalizeLanguageCode(language);
+
+    if (namespace !== CORE_NAMESPACE) {
+      const file =
+        normalizedLanguage === "en" ? "en" : LOCALE_FILES[normalizedLanguage];
+      if (!pluginLocaleResolver || !file) {
+        callback(null, {});
+        return;
+      }
+      pluginLocaleResolver(namespace, normalizedLanguage, file)
+        .then((resources) => callback(null, resources ?? {}))
+        .catch(() => callback(null, {}));
+      return;
+    }
 
     if (normalizedLanguage === "en") {
       callback(null, enTranslation);
@@ -91,6 +121,9 @@ i18n
   .init({
     supportedLngs,
     fallbackLng: "en",
+    // A plugin's namespace falls back to core, so plugins keep using the
+    // shared strings (common.*, hosts.*) without copying them.
+    fallbackNS: CORE_NAMESPACE,
     debug: false,
 
     detection: {
@@ -113,6 +146,8 @@ i18n
 
     react: {
       useSuspense: false,
+      // Repaint when a plugin enabled later loads its strings.
+      bindI18n: "languageChanged loaded",
     },
   });
 

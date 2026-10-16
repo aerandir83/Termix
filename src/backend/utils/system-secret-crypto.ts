@@ -7,7 +7,7 @@ import { SystemCrypto } from "./system-crypto.js";
  * Per-user field encryption (DataCrypto/FieldCrypto) derives its key from the
  * user's DEK, which works for host passwords and SSH keys. It does not work for
  * SSO provider configuration: `sso_providers` has no `userId`, and the OIDC
- * client secret and LDAP bind password must be readable during login — before
+ * client secret and LDAP bind password must be readable during login, before
  * any user is authenticated, let alone unlocked.
  *
  * Those secrets were previously stored base64-encoded behind an `encoded:`
@@ -84,38 +84,4 @@ export async function decryptSystemSecret(stored: string): Promise<string> {
     decipher.update(Buffer.from(dataPart, "base64")),
     decipher.final(),
   ]).toString("utf8");
-}
-
-/** Fields inside an SSO provider config that must not be stored readable. */
-export const SSO_SECRET_FIELDS = ["client_secret", "bindPassword"] as const;
-
-export async function encryptSsoConfigSecrets(
-  config: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const out = { ...config };
-  for (const field of SSO_SECRET_FIELDS) {
-    const value = out[field];
-    if (typeof value === "string" && value) {
-      out[field] = await encryptSystemSecret(value);
-    }
-  }
-  return out;
-}
-
-export async function decryptSsoConfigSecrets(
-  config: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const out = { ...config };
-  for (const field of SSO_SECRET_FIELDS) {
-    const value = out[field];
-    if (typeof value === "string" && value) {
-      try {
-        out[field] = await decryptSystemSecret(value);
-      } catch {
-        // A secret we cannot read must not take the whole provider down;
-        // login will fail with a clearer error downstream.
-      }
-    }
-  }
-  return out;
 }

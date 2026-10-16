@@ -13,10 +13,17 @@ dist-ssr
 coverage
 *.local
 
-.vscode/*
-!.vscode/settings.json
-.idea
+# Plugin build output. termix-plugin build writes it, the packaged server
+# gets its copy under dist/plugins.
+*.tmxplug
+*.tmxplug.sig
+termix-plugin-signing.key
+/src/**/*.js
+
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj

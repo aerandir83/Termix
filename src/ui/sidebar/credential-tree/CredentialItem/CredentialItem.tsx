@@ -1,3 +1,4 @@
+import { rem } from "@/lib/rem";
 import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
@@ -7,23 +8,19 @@ import {
   Pencil,
   Pin,
   Trash2,
+  Share2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyToClipboard } from "@/lib/clipboard";
+import { ComponentSlot } from "@/shell/ActionSlot";
 import type { Credential } from "@/types/ui-types";
-import type {
-  CredentialDensity,
-  CredentialTrayTrigger,
+import {
+  defaultCredentialRowFields,
+  type CredentialDensity,
+  type CredentialRowFields,
+  type CredentialTrayTrigger,
 } from "@/types/credential-sidebar-preferences";
-
-export function credentialMatchesQuery(cred: Credential, query: string) {
-  return (
-    cred.name.toLowerCase().includes(query) ||
-    cred.username.toLowerCase().includes(query) ||
-    cred.tags?.some((t) => t.toLowerCase().includes(query))
-  );
-}
 
 /**
  * Per-density layout knobs, mirroring HOST_ITEM_DENSITY_TOKENS in
@@ -45,14 +42,13 @@ const CREDENTIAL_ITEM_DENSITY_TOKENS = {
   },
 } as const;
 
+const DEFAULT_ROW_FIELDS = defaultCredentialRowFields();
+
 export function CredentialItem({
   cred,
   usedByCount = 0,
-  termixIdLinked = false,
-  query = "",
   stripeIndex = 0,
   isMenuOpen = false,
-  onMenuOpenChange,
   isTrayOpen = false,
   onTrayOpenChange,
   onDragStart,
@@ -61,6 +57,7 @@ export function CredentialItem({
   density = "comfortable",
   trayTrigger = "hover",
   showTags = true,
+  rowFields = DEFAULT_ROW_FIELDS,
   arrangeMode = false,
   isDragging = false,
   onReorderDrop,
@@ -71,10 +68,10 @@ export function CredentialItem({
   onEdit,
   onClone,
   onDelete,
+  onShare,
 }: {
   cred: Credential;
   usedByCount?: number;
-  termixIdLinked?: boolean;
   query?: string;
   stripeIndex?: number;
   isMenuOpen?: boolean;
@@ -88,6 +85,7 @@ export function CredentialItem({
   density?: CredentialDensity;
   trayTrigger?: CredentialTrayTrigger;
   showTags?: boolean;
+  rowFields?: CredentialRowFields;
   /** When true (rearranging unlocked), the row can be dragged to reorder or
    * onto a folder header to move. */
   arrangeMode?: boolean;
@@ -104,12 +102,15 @@ export function CredentialItem({
   onEdit: () => void;
   onClone: () => void;
   onDelete: () => void;
+  onShare?: () => void;
 }) {
   const { t } = useTranslation();
   const reorderEdge = isReorderHovered ? reorderHoverEdge : null;
   const isKey = cred.type === "key";
   const tokens = CREDENTIAL_ITEM_DENSITY_TOKENS[density];
   const isCompact = density === "compact";
+  const showUsername = rowFields.showUsername && !!cred.username;
+  const showUsage = rowFields.showUsageCount && usedByCount > 0;
   const isTouchOnly =
     typeof window !== "undefined" && window.matchMedia("(hover: none)").matches;
 
@@ -120,7 +121,7 @@ export function CredentialItem({
   const canDrag = arrangeMode && !isTouchOnly;
 
   const depthStyle =
-    depth > 0 ? ({ paddingLeft: depth * 12 } as const) : undefined;
+    depth > 0 ? ({ paddingLeft: rem(depth * 12) } as const) : undefined;
 
   const trayButtonClass =
     "flex items-center justify-center size-6.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors";
@@ -158,38 +159,61 @@ export function CredentialItem({
     </>
   ) : null;
 
+  // A recipient sees only what their grant allows: "manage" may edit and
+  // re-share, "use" may only use. Cloning and deleting stay with the owner.
+  const canEdit = !cred.isShared || cred.permissionLevel === "manage";
+  const canShare =
+    !!onShare && (!cred.isShared || cred.permissionLevel === "manage");
   const managementButtons = (
     <>
-      <button
-        title={t("credentials.editCredentialAction")}
-        onClick={(e) => {
-          e.stopPropagation();
-          onEdit();
-        }}
-        className={trayButtonClass}
-      >
-        <Pencil className="size-3.5" />
-      </button>
-      <button
-        title={t("credentials.cloneCredentialAction")}
-        onClick={(e) => {
-          e.stopPropagation();
-          onClone();
-        }}
-        className={trayButtonClass}
-      >
-        <CopyPlus className="size-3.5" />
-      </button>
-      <button
-        title={t("credentials.deleteCredentialAction")}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className={`${trayButtonClass} hover:text-destructive`}
-      >
-        <Trash2 className="size-3.5" />
-      </button>
+      {canEdit && (
+        <button
+          title={t("credentials.editCredentialAction")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className={trayButtonClass}
+        >
+          <Pencil className="size-3.5" />
+        </button>
+      )}
+      {canShare && (
+        <button
+          title={t("credentials.shareCredentialAction")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onShare?.();
+          }}
+          className={trayButtonClass}
+        >
+          <Share2 className="size-3.5" />
+        </button>
+      )}
+      {!cred.isShared && (
+        <>
+          <button
+            title={t("credentials.cloneCredentialAction")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClone();
+            }}
+            className={trayButtonClass}
+          >
+            <CopyPlus className="size-3.5" />
+          </button>
+          <button
+            title={t("credentials.deleteCredentialAction")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className={`${trayButtonClass} hover:text-destructive`}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        </>
+      )}
     </>
   );
 
@@ -200,10 +224,10 @@ export function CredentialItem({
   const trayCollapsed = `max-h-0 opacity-0 ${isCompact ? "" : "-mt-1"}`;
   const trayVisibilityClass =
     alwaysShowTray || actionsOnly
-      ? `overflow-hidden transition-all duration-150 ease-out ${trayOpenState || alwaysShowTray ? "max-h-[60px] opacity-100" : trayCollapsed}`
+      ? `overflow-hidden transition-[max-height,opacity,margin] duration-150 ease-out ${trayOpenState || alwaysShowTray ? "max-h-[60px] opacity-100" : trayCollapsed}`
       : shouldUseClickTray
-        ? `overflow-hidden transition-all duration-150 ease-out ${trayOpenState ? "max-h-[60px] opacity-100" : trayCollapsed}`
-        : `overflow-hidden transition-all duration-150 ease-out ${trayCollapsed} group-hover:max-h-[60px] group-hover:opacity-100 ${isCompact ? "" : "group-hover:mt-0"} ${isMenuOpen ? `!max-h-[60px] !opacity-100 ${isCompact ? "" : "!mt-0"}` : ""}`;
+        ? `overflow-hidden transition-[max-height,opacity,margin] duration-150 ease-out ${trayOpenState ? "max-h-[60px] opacity-100" : trayCollapsed}`
+        : `overflow-hidden transition-[max-height,opacity,margin] duration-150 ease-out ${trayCollapsed} group-hover:max-h-[60px] group-hover:opacity-100 ${isCompact ? "" : "group-hover:mt-0"} ${isMenuOpen ? `!max-h-[60px] !opacity-100 ${isCompact ? "" : "!mt-0"}` : ""}`;
 
   return (
     <div
@@ -265,23 +289,39 @@ export function CredentialItem({
             className={`${tokens.nameTextSize} font-semibold truncate text-foreground leading-none tracking-tight`}
           >
             {cred.name}
+            {rowFields.showSharedBadge && cred.isShared && (
+              <span
+                className="ml-1 inline-flex items-center gap-0.5 text-[9px] uppercase text-accent-brand/80"
+                title={t("credentials.sharedBy", {
+                  owner: cred.ownerUsername ?? "",
+                })}
+              >
+                <Share2 className="size-2.5" />
+                {t("credentials.sharedBadge")}
+              </span>
+            )}
           </span>
-          <span
-            className={`text-[9px] px-1 py-px font-bold border leading-none shrink-0 ${isKey ? "border-accent-brand/30 text-accent-brand" : "border-border/60 text-muted-foreground/60"}`}
-          >
-            {isKey ? t("credentials.keyBadge") : t("credentials.passwordBadge")}
-          </span>
-          {termixIdLinked && (
-            <span className="text-[9px] px-1 py-px font-bold border leading-none shrink-0 border-accent-brand/30 text-accent-brand/70">
-              {t("credentials.idBadge")}
+          {rowFields.showTypeBadge && (
+            <span
+              className={`text-[9px] px-1 py-px font-bold border leading-none shrink-0 ${isKey ? "border-accent-brand/30 text-accent-brand" : "border-border/60 text-muted-foreground/60"}`}
+            >
+              {isKey
+                ? t("credentials.keyBadge")
+                : t("credentials.passwordBadge")}
             </span>
           )}
-          {cred.pin && (
+          <ComponentSlot
+            slotId="credentials.badges"
+            props={{ credentialId: Number(cred.id) }}
+          />
+          {rowFields.showPinIcon && cred.pin && (
             <Pin className="size-2.5 text-accent-brand/50 shrink-0" />
           )}
           {!shouldUseClickTray && !actionsOnly && (
             <span className="text-[11px] text-muted-foreground/45 truncate leading-none ml-auto shrink-0 group-hover:hidden">
-              {usedByCount > 0 ? `${usedByCount}h` : ""}
+              {rowFields.showUsageCount && usedByCount > 0
+                ? `${usedByCount}h`
+                : ""}
             </span>
           )}
           {(shouldUseClickTray || actionsOnly) && (
@@ -305,12 +345,13 @@ export function CredentialItem({
         </div>
 
         {/* Username row */}
-        {tokens.showUsernameRow && (cred.username || usedByCount > 0) && (
+        {tokens.showUsernameRow && (showUsername || showUsage) && (
           <span className="text-[11px] text-muted-foreground/60 truncate leading-none font-mono">
-            {cred.username}
-            {usedByCount > 0 && (
-              <span className="text-muted-foreground/40">
-                {cred.username ? " · " : ""}
+            {showUsername && cred.username}
+            {showUsage && (
+              <span
+                className={`text-muted-foreground/40${showUsername ? " ml-2" : ""}`}
+              >
                 {usedByCount}h
               </span>
             )}

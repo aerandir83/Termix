@@ -1,56 +1,55 @@
 import { authLogger } from "../../utils/logger.js";
 import {
-  createCurrentAiRepository,
-  createCurrentAlertRepository,
   createCurrentApiKeyRepository,
   createCurrentAuditLogRepository,
-  createCurrentC2sTunnelPresetRepository,
-  createCurrentCommandHistoryRepository,
   createCurrentCredentialRepository,
-  createCurrentDashboardServiceLinkRepository,
-  createCurrentDismissedAlertRepository,
-  createCurrentFileManagerBookmarkRepository,
-  createCurrentHomepageItemRepository,
-  createCurrentHomepageLayoutRepository,
-  createCurrentHostHealthRepository,
   createCurrentHostFolderRepository,
-  createCurrentHostMetricsPreferenceRepository,
   createCurrentHostRepository,
   createCurrentHostSidebarPreferenceRepository,
   createCurrentCredentialSidebarPreferenceRepository,
   createCurrentUiPreferenceRepository,
-  createCurrentNetworkTopologyRepository,
-  createCurrentOpksshTokenRepository,
   createCurrentOpenTabRepository,
   createCurrentRecentActivityRepository,
   createCurrentRbacAccessRepository,
   createCurrentRoleRepository,
   createCurrentSessionRepository,
-  createCurrentSessionRecordingRepository,
   createCurrentSettingsRepository,
   createCurrentSharedHostSecretsRepository,
-  createCurrentSnippetRepository,
   createCurrentSshCredentialUsageRepository,
-  createCurrentTermixIdentityCaRepository,
-  createCurrentTermixIdentityRepository,
-  createCurrentTmuxSessionTagRepository,
   createCurrentTrustedDeviceRepository,
   createCurrentUserPreferenceRepository,
   createCurrentUserRepository,
-  createCurrentTransferRecentRepository,
-  createCurrentVaultProfileRepository,
-  createCurrentVaultTokenRepository,
+  createCurrentSharedCredentialSecretsRepository,
+  createCurrentCredentialAccessRepository,
 } from "../repositories/factory.js";
 
-export async function deleteUserAndRelatedData(userId: string): Promise<void> {
+export async function deleteUserAndRelatedData(
+  userId: string,
+  options: { successorUserId?: string } = {},
+): Promise<void> {
   try {
+    // With a successor, hosts and credentials (and the shares on them)
+    // change owner instead of disappearing with the account.
+    if (options.successorUserId) {
+      const { transferOwnership } =
+        await import("../../utils/transfer-ownership.js");
+      await transferOwnership(userId, options.successorUserId);
+    }
+
     await createCurrentSharedHostSecretsRepository().deleteByTargetUserId(
       userId,
     );
+    await createCurrentSharedCredentialSecretsRepository().deleteByTargetUserId(
+      userId,
+    );
+    await createCurrentCredentialAccessRepository().deleteForUserReferences(
+      userId,
+    );
 
-    // Retained rather than deleted: these outlive the account by design.
-    // See anonymizeByUserId on each repository.
-    await createCurrentSessionRecordingRepository().anonymizeByUserId(userId);
+    // Plugins drop or anonymize their own rows on user.deleted, or rely on
+    // their refUser() foreign keys cascading.
+    const { pluginEvents, TOPICS } = await import("../../plugins/events.js");
+    pluginEvents.emit(TOPICS.userDeleted, { userId });
 
     await createCurrentRbacAccessRepository().deleteHostAccessForUserReferences(
       userId,
@@ -61,27 +60,14 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     await createCurrentTrustedDeviceRepository().deleteByUserId(userId);
 
     await createCurrentRoleRepository().removeAllRolesFromUser(userId);
-    await createCurrentAiRepository().deleteByUserId(userId);
-    await createCurrentAlertRepository().deleteByUserId(userId);
     await createCurrentAuditLogRepository().anonymizeByUserId(userId);
 
     await createCurrentSshCredentialUsageRepository().deleteByUserId(userId);
 
-    await createCurrentFileManagerBookmarkRepository().deleteByUserId(userId);
-
-    await createCurrentTransferRecentRepository().deleteByUserId(userId);
-
     await createCurrentRecentActivityRepository().deleteByUserId(userId);
-    await createCurrentDismissedAlertRepository().deleteByUserId(userId);
-
-    await createCurrentSnippetRepository().deleteByUserId(userId);
 
     await createCurrentHostFolderRepository().deleteByUserId(userId);
 
-    await createCurrentCommandHistoryRepository().deleteByUserId(userId);
-
-    await createCurrentHostHealthRepository().deleteByUserId(userId);
-    await createCurrentHostMetricsPreferenceRepository().deleteByUserId(userId);
     await createCurrentHostSidebarPreferenceRepository().deleteByUserId(userId);
     await createCurrentCredentialSidebarPreferenceRepository().deleteByUserId(
       userId,
@@ -90,17 +76,8 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     await createCurrentHostRepository().deleteByUserId(userId);
     await createCurrentCredentialRepository().deleteByUserId(userId);
 
-    await createCurrentNetworkTopologyRepository().deleteByUserId(userId);
-    await createCurrentDashboardServiceLinkRepository().deleteByUserId(userId);
-    await createCurrentHomepageItemRepository().deleteByUserId(userId);
-    await createCurrentHomepageLayoutRepository().deleteByUserId(userId);
-    await createCurrentC2sTunnelPresetRepository().deleteByUserId(userId);
-    await createCurrentOpksshTokenRepository().deleteByUserId(userId);
-    await createCurrentVaultTokenRepository().deleteByUserId(userId);
-    await createCurrentVaultProfileRepository().deleteByUserId(userId);
-    await createCurrentTermixIdentityCaRepository().deleteByUserId(userId);
-    await createCurrentTermixIdentityRepository().deleteByUserId(userId);
-    await createCurrentTmuxSessionTagRepository().deleteByUserId(userId);
+    // Plugin tables with a refUser() column cascade on the user row.
+
     await createCurrentOpenTabRepository().deleteByUserId(userId);
     await createCurrentUserPreferenceRepository().deleteByUserId(userId);
 

@@ -4,7 +4,6 @@ import { ServerStatusStore } from "../../lib/server-status-store";
 describe("ServerStatusStore", () => {
   it("notifies only listeners for hosts whose status value changed", () => {
     const store = new ServerStatusStore();
-    store.setEnabledHostIds(new Set([1, 2, 3]));
 
     const on1 = vi.fn();
     const on2 = vi.fn();
@@ -43,7 +42,6 @@ describe("ServerStatusStore", () => {
 
   it("does not notify when the status map is unchanged", () => {
     const store = new ServerStatusStore();
-    store.setEnabledHostIds(new Set([1]));
     store.applyStatuses(
       new Map([[1, { status: "online", lastChecked: "t1" }]]),
     );
@@ -57,21 +55,23 @@ describe("ServerStatusStore", () => {
     expect(store.getStatus(1)).toBe("online");
   });
 
-  it("returns offline for disabled hosts", () => {
+  it("calls a host it has no result for unknown, never offline", () => {
     const store = new ServerStatusStore();
-    store.applyStatuses(new Map([[5, { status: "online", lastChecked: "t" }]]));
-    expect(store.getStatus(5)).toBe("offline");
-    store.setEnabledHostIds(new Set([5]));
-    expect(store.getStatus(5)).toBe("online");
+    expect(store.getStatus(5)).toBe("unknown");
   });
 
-  it("preserves reachable as distinct from authenticated online", () => {
+  it("forgets everything on clear", () => {
     const store = new ServerStatusStore();
-    store.setEnabledHostIds(new Set([7]));
-    store.applyStatuses(
-      new Map([[7, { status: "reachable", lastChecked: "t" }]]),
-    );
-    expect(store.getStatus(7)).toBe("reachable");
+    store.applyStatuses(new Map([[5, { status: "online", lastChecked: "t" }]]));
+    store.setInitialLoadComplete(true);
+    const listener = vi.fn();
+    store.subscribeHost(5, listener);
+
+    store.clear();
+
+    expect(store.getStatus(5)).toBe("unknown");
+    expect(store.getInitialLoadComplete()).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("emits meta listeners when initial load completes", () => {

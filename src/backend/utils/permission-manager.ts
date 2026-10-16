@@ -183,7 +183,8 @@ class PermissionManager {
       }
     }
 
-    return false;
+    // Checked last: it costs two queries and only matters on the deny path.
+    return this.isAdmin(userId);
   }
 
   async canAccessHost(
@@ -294,7 +295,7 @@ class PermissionManager {
    * queries instead of one call per host.
    *
    * canAccessHost costs between one and four queries, so filtering a list with
-   * it is linear in host count — and the status poll does exactly that every
+   * it is linear in host count, and the status poll does exactly that every
    * few seconds for the whole fleet. This answers the same question for many
    * hosts at once using the same three rules, in the same order: owner, then
    * an unexpired grant, then admin bypass.
@@ -480,7 +481,7 @@ class PermissionManager {
   }
 }
 
-export { PermissionManager, SHARE_PERMISSION_LEVELS, LEVEL_RANK };
+export { PermissionManager, SHARE_PERMISSION_LEVELS };
 export type {
   AuthenticatedRequest,
   HostAccessInfo,

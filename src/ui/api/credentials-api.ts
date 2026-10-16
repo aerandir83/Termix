@@ -116,15 +116,7 @@ export async function getSSHHostWithCredentials(
 
 export async function getHostPassword(
   hostId: number,
-  field:
-    | "password"
-    | "sudoPassword"
-    | "rdpPassword"
-    | "vncPassword"
-    | "telnetPassword"
-    | "ardPassword"
-    | "key"
-    | "keyPassword" = "password",
+  field: "password" | "sudoPassword" | "key" | "keyPassword" = "password",
 ): Promise<string | null> {
   try {
     const response = await sshHostApi.get(
@@ -233,6 +225,7 @@ export async function updateFolderMetadata(
   color?: string,
   icon?: string,
   credentialId?: number | null,
+  localOnly?: boolean,
 ): Promise<void> {
   try {
     sshLogger.info("Updating folder metadata", {
@@ -248,6 +241,7 @@ export async function updateFolderMetadata(
       color,
       icon,
       credentialId,
+      localOnly,
     });
 
     invalidateSSHFoldersCache();

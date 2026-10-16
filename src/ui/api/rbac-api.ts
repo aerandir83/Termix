@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import {
   handleApiError,
   rbacApi,
@@ -16,7 +17,18 @@ async function getSharingTarget(hostId: number, syncId?: string | null) {
   if (!api || !syncId) return { api: rbacApi, hostId };
   const remoteHostId = await resolveRemoteHostId(syncId);
   if (remoteHostId === null) {
-    throw new Error("The synced host does not exist on the remote server");
+    throw new Error(i18n.t("errors.syncedHostMissing"));
+  }
+  return { api, hostId: remoteHostId };
+}
+
+/** A shared host's copy on a linked desktop is managed on the server. */
+async function getSharedCopyTarget(hostId: number, syncId?: string | null) {
+  if (!syncId) return { api: rbacApi, hostId };
+  const api = await getConnectedRemoteApi();
+  const remoteHostId = api ? await resolveRemoteHostId(syncId) : null;
+  if (!api || remoteHostId === null) {
+    throw new Error(i18n.t("errors.linkedServerUnreachable"));
   }
   return { api, hostId: remoteHostId };
 }
@@ -54,6 +66,13 @@ export async function updateRole(
 ): Promise<{ role: Role }> {
   try {
     const response = await rbacApi.put(`/rbac/roles/${roleId}`, roleData);
+    if (roleData.permissions) {
+      // The editing admin may hold this role, so re-read our own grants
+      // rather than leaving gated UI stale until the next reload.
+      const { notifyPermissionsChanged } =
+        await import("@/hooks/use-permissions");
+      notifyPermissionsChanged();
+    }
     return response.data;
   } catch (error) {
     throw handleApiError(error, "update role");
@@ -107,6 +126,24 @@ export async function removeRoleFromUser(
     return response.data;
   } catch (error) {
     throw handleApiError(error, "remove role from user");
+  }
+}
+
+export interface RoleMember {
+  userId: string;
+  username: string;
+  grantedAt: string;
+  grantedBy: string | null;
+}
+
+export async function getRoleMembers(
+  roleId: number,
+): Promise<{ members: RoleMember[] }> {
+  try {
+    const response = await rbacApi.get(`/rbac/roles/${roleId}/members`);
+    return response.data;
+  } catch (error) {
+    throw handleApiError(error, "get role members");
   }
 }
 
@@ -173,6 +210,42 @@ export async function shareFolder(
   }
 }
 
+export interface FolderAccessRule {
+  id: number;
+  folder: string;
+  targetType: "user" | "role";
+  userId: string | null;
+  roleId: number | null;
+  username: string | null;
+  roleName: string | null;
+  roleDisplayName: string | null;
+  permissionLevel: SharePermissionLevel;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+/** Standing shares on a folder - what hosts added to it later inherit. */
+export async function getFolderAccess(
+  folder: string,
+): Promise<{ rules: FolderAccessRule[] }> {
+  try {
+    const response = await rbacApi.get("/rbac/folder/access", {
+      params: { folder },
+    });
+    return response.data;
+  } catch (error) {
+    throw handleApiError(error, "get folder access");
+  }
+}
+
+export async function revokeFolderAccess(ruleId: number): Promise<void> {
+  try {
+    await rbacApi.delete(`/rbac/folder/access/${ruleId}`);
+  } catch (error) {
+    throw handleApiError(error, "revoke folder access");
+  }
+}
+
 export async function updateHostAccess(
   hostId: number,
   accessId: number,
@@ -207,9 +280,25 @@ export async function getHostAccess(
   }
 }
 
+export interface PermissionCatalogItem {
+  permission: string;
+  /** Plugin-relative keys; resolve them with pluginKey(). */
+  titleKey: string;
+  descriptionKey: string;
+}
+
 export interface PermissionCatalogEntry {
   group: string;
   permissions: string[];
+  /** Set for a group a plugin contributed. */
+  pluginId?: string;
+  /** Core groups carry an i18n key, plugin groups their display name. */
+  labelKey?: string;
+  label?: string;
+  icon?: string;
+  /** False once the owning plugin is disabled or gone. */
+  enabled?: boolean;
+  items?: PermissionCatalogItem[];
 }
 
 export async function getPermissionsCatalog(): Promise<{
@@ -220,6 +309,21 @@ export async function getPermissionsCatalog(): Promise<{
     return response.data;
   } catch (error) {
     throw handleApiError(error, "fetch permissions catalog");
+  }
+}
+
+export interface MyPermissions {
+  permissions: string[];
+  isAdmin: boolean;
+}
+
+/** The current user's own grants, for hiding UI they could not use. */
+export async function getMyPermissions(): Promise<MyPermissions> {
+  try {
+    const response = await rbacApi.get("/rbac/permissions/me");
+    return response.data;
+  } catch (error) {
+    throw handleApiError(error, "fetch permissions");
   }
 }
 
@@ -266,10 +370,12 @@ export async function revokeHostAccess(
 export async function getHostAuthOverride(
   hostId: number,
   protocol: AuthOverrideProtocol,
+  sharedCopySyncId?: string | null,
 ): Promise<{ protocol: AuthOverrideProtocol; credentialId: number | null }> {
   try {
-    const response = await rbacApi.get(
-      `/rbac/host-access/${hostId}/auth/${protocol}`,
+    const target = await getSharedCopyTarget(hostId, sharedCopySyncId);
+    const response = await target.api.get(
+      `/rbac/host-access/${target.hostId}/auth/${protocol}`,
     );
     return response.data;
   } catch (error) {
@@ -281,14 +387,16 @@ export async function setHostAuthOverride(
   hostId: number,
   protocol: AuthOverrideProtocol,
   credentialId: number | null,
+  sharedCopySyncId?: string | null,
 ): Promise<{
   success: boolean;
   protocol: AuthOverrideProtocol;
   credentialId: number | null;
 }> {
   try {
-    const response = await rbacApi.put(
-      `/rbac/host-access/${hostId}/auth/${protocol}`,
+    const target = await getSharedCopyTarget(hostId, sharedCopySyncId);
+    const response = await target.api.put(
+      `/rbac/host-access/${target.hostId}/auth/${protocol}`,
       { credentialId },
     );
     return response.data;
@@ -297,71 +405,45 @@ export async function setHostAuthOverride(
   }
 }
 
-// ============================================================================
-// SNIPPET SHARING
-// ============================================================================
+export type CredentialPermissionLevel = "use" | "manage";
 
-export async function shareSnippet(
-  snippetId: number,
-  shareData: {
-    targetType: "user" | "role";
-    targetUserId?: string;
-    targetRoleId?: number;
-    durationHours?: number;
-  },
-): Promise<{ success: boolean }> {
+export async function shareCredential(
+  credentialId: number,
+  targets: ShareTarget[],
+  permissionLevel: CredentialPermissionLevel,
+  durationHours?: number,
+): Promise<{ success: boolean; expiresAt: string | null }> {
   try {
     const response = await rbacApi.post(
-      `/rbac/snippet/${snippetId}/share`,
-      shareData,
+      `/rbac/credential/${credentialId}/share`,
+      { targets, permissionLevel, durationHours },
     );
     return response.data;
   } catch (error) {
-    throw handleApiError(error, "share snippet");
+    throw handleApiError(error, "share credential");
   }
 }
 
-export async function getSnippetAccess(
-  snippetId: number,
-): Promise<{ accessList: AccessRecord[] }> {
+export async function getCredentialAccess(
+  credentialId: number,
+): Promise<{ access: AccessRecord[] }> {
   try {
-    const response = await rbacApi.get(`/rbac/snippet/${snippetId}/access`);
+    const response = await rbacApi.get(
+      `/rbac/credential/${credentialId}/access`,
+    );
     return response.data;
   } catch (error) {
-    throw handleApiError(error, "fetch snippet access");
+    throw handleApiError(error, "get credential access");
   }
 }
 
-export async function revokeSnippetAccess(
-  snippetId: number,
+export async function revokeCredentialAccess(
+  credentialId: number,
   accessId: number,
-): Promise<{ success: boolean }> {
+): Promise<void> {
   try {
-    const response = await rbacApi.delete(
-      `/rbac/snippet/${snippetId}/access/${accessId}`,
-    );
-    return response.data;
+    await rbacApi.delete(`/rbac/credential/${credentialId}/access/${accessId}`);
   } catch (error) {
-    throw handleApiError(error, "revoke snippet access");
-  }
-}
-
-export async function getSharedSnippets(): Promise<{
-  sharedSnippets: Array<{
-    id: number;
-    name: string;
-    content: string;
-    description: string | null;
-    folder: string | null;
-    ownerUsername: string;
-    permissionLevel: string;
-    expiresAt: string | null;
-  }>;
-}> {
-  try {
-    const response = await rbacApi.get("/rbac/shared-snippets");
-    return response.data;
-  } catch (error) {
-    handleApiError(error, "fetch shared snippets");
+    throw handleApiError(error, "revoke credential access");
   }
 }

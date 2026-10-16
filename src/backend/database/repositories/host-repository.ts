@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { hostAccess, hosts } from "../db/schema.js";
+import { hostAccess, hosts, pluginSettings } from "../db/schema.js";
 import type { DatabaseContext } from "./database-context.js";
 import { DataCrypto } from "../../utils/data-crypto.js";
 import { rowsAffected } from "./mutation-result.js";
@@ -15,9 +15,7 @@ export type NewHostRecord = typeof hosts.$inferInsert;
 export type HostUpdate = Partial<Omit<NewHostRecord, "id" | "userId">>;
 export interface HostBulkUpdateState {
   id: number;
-  statsConfig: string | null;
   credentialId: number | null;
-  proxmoxConfig: string | null;
 }
 
 export class HostRepository {
@@ -103,19 +101,6 @@ export class HostRepository {
     return DataCrypto.decryptRecord("ssh_data", row, userId, userDataKey);
   }
 
-  async listProxmoxEnabled(): Promise<
-    Pick<HostRecord, "id" | "userId" | "proxmoxConfig">[]
-  > {
-    return this.context.drizzle
-      .select({
-        id: hosts.id,
-        userId: hosts.userId,
-        proxmoxConfig: hosts.proxmoxConfig,
-      })
-      .from(hosts)
-      .where(eq(hosts.enableProxmox, true));
-  }
-
   async listByUserId(userId: string): Promise<HostRecord[]> {
     return this.context.drizzle
       .select()
@@ -168,6 +153,47 @@ export class HostRepository {
     return rows[0] ?? null;
   }
 
+  /** Re-keys every host of one user to another; see CredentialRepository.transferAllToUser. */
+  async transferAllToUser(
+    fromUserId: string,
+    toUserId: string,
+  ): Promise<number[]> {
+    const fromKey = DataCrypto.validateUserAccess(fromUserId);
+    const toKey = DataCrypto.validateUserAccess(toUserId);
+    const rows = await this.context.drizzle
+      .select()
+      .from(hosts)
+      .where(eq(hosts.userId, fromUserId));
+    const moved: number[] = [];
+    for (const row of rows) {
+      const plain = DataCrypto.decryptRecord(
+        "ssh_data",
+        row,
+        fromUserId,
+        fromKey,
+      );
+      const {
+        id: _id,
+        userId: _userId,
+        ...fields
+      } = plain as Record<string, unknown>;
+      const encrypted = DataCrypto.encryptRecord(
+        "ssh_data",
+        { ...fields, id: row.id },
+        toUserId,
+        toKey,
+      ) as Record<string, unknown>;
+      delete encrypted.id;
+      await this.context.drizzle
+        .update(hosts)
+        .set({ ...(encrypted as Partial<HostUpdate>), userId: toUserId })
+        .where(eq(hosts.id, row.id));
+      moved.push(row.id);
+    }
+    if (moved.length) await this.afterWrite();
+    return moved;
+  }
+
   async updateEncryptedForUser(
     userId: string,
     hostId: number,
@@ -205,9 +231,7 @@ export class HostRepository {
     return this.context.drizzle
       .select({
         id: hosts.id,
-        statsConfig: hosts.statsConfig,
         credentialId: hosts.credentialId,
-        proxmoxConfig: hosts.proxmoxConfig,
       })
       .from(hosts)
       .where(and(inArray(hosts.id, hostIds), eq(hosts.userId, userId)));
@@ -297,6 +321,25 @@ export class HostRepository {
   }
 
   async deleteByUserId(userId: string): Promise<number> {
+    // Bulk path, so it never passes through deleteAccessForHost: clear the
+    // host-scope plugin settings for these hosts before the rows go.
+    const owned = await this.context.drizzle
+      .select({ id: hosts.id })
+      .from(hosts)
+      .where(eq(hosts.userId, userId));
+
+    if (owned.length > 0) {
+      await this.context.drizzle.delete(pluginSettings).where(
+        and(
+          eq(pluginSettings.scope, "host"),
+          inArray(
+            pluginSettings.scopeId,
+            owned.map((row) => String(row.id)),
+          ),
+        ),
+      );
+    }
+
     const result = await this.context.drizzle
       .delete(hosts)
       .where(eq(hosts.userId, userId));
@@ -309,6 +352,18 @@ export class HostRepository {
   }
 
   async deleteAccessForHost(hostId: number): Promise<number> {
+    // plugin_settings.scope_id is polymorphic, so it has no foreign key to
+    // ssh_data and the engine will not cascade it. Cleared alongside the
+    // access rows, which every host delete path already goes through.
+    await this.context.drizzle
+      .delete(pluginSettings)
+      .where(
+        and(
+          eq(pluginSettings.scope, "host"),
+          eq(pluginSettings.scopeId, String(hostId)),
+        ),
+      );
+
     const result = await this.context.drizzle
       .delete(hostAccess)
       .where(eq(hostAccess.hostId, hostId));

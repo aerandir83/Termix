@@ -1,234 +1,58 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
-  Box,
-  Boxes,
-  Braces,
-  FolderSearch,
-  HardDrive,
+  requestFromLegacyEvent,
+  requestManage,
+} from "@/manage/manage-requests";
+import {
   LayoutDashboard,
-  LayoutGrid,
   LayoutPanelLeft,
-  MessagesSquare,
-  Monitor,
-  MousePointerClick,
-  Network,
+  Puzzle,
+  LibraryBig,
   Server,
   Settings,
-  Terminal,
-  Usb,
-  User,
-  Activity,
-  TerminalSquare,
-  Layers, // --- tmux-monitor ---
-  Clock,
-  Fingerprint,
-  Hammer,
-  Play,
-  Plug,
-  ScreenShare,
-  ScrollText,
-  Sparkles,
-  Workflow,
 } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, memo, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import type { SerialHandle } from "@/features/serial/serial-types";
-import type {
-  TerminalHandle,
-  TerminalHostConfig,
-} from "@/features/terminal/Terminal";
-import type { GuacamoleAppHandle } from "@/features/guacamole/GuacamoleApp";
-import { useIsMobile } from "@/hooks/use-mobile";
-import type { Tab, TabType, Host } from "@/types/ui-types";
-import type { SSHHost } from "@/types";
-import { useTabsSafe } from "@/shell/TabContext";
+import type { Tab, TabType } from "@/types/ui-types";
+import { trackTabHandle } from "@/shell/tab-handles";
+import { hostToSSHHost } from "@/lib/host-to-ssh-host";
+import { PluginViewPlaceholder } from "@/plugin-host/PluginViewPlaceholder";
+import {
+  getTabType,
+  type TabShellCallbacks,
+  type TabTypeDef,
+} from "./tab-registry";
+import { getPanel, type PanelDef } from "./panel-registry";
+import type { SettingsTabProps } from "@/settings/SettingsTab";
 import {
   markAdaptiveResourceUsed,
   runAdaptiveBackgroundTask,
 } from "@/lib/adaptive-resource-budget";
 
-// Heavy tab surfaces — keep out of the AppShell critical path.
-const CommandHistoryProvider = lazy(() =>
-  import("@/features/terminal/command-history/CommandHistoryContext").then(
-    (m) => ({ default: m.CommandHistoryProvider }),
-  ),
+// Heavy tab surfaces, kept out of the AppShell critical path.
+const ManageTab = lazy(() =>
+  import("@/manage/ManageTab").then((m) => ({ default: m.ManageTab })),
 );
-const loadTerminalFeature = () =>
-  import("@/features/terminal/Terminal").then((m) => ({
-    default: m.Terminal,
-  }));
-const TerminalFeature = lazy(loadTerminalFeature);
-const LocalTerminal = lazy(() =>
-  import("@/features/local-terminal/LocalTerminal").then((m) => ({
-    default: m.LocalTerminal,
-  })),
+const SettingsTab = lazy(() =>
+  import("@/settings/SettingsTab").then((m) => ({ default: m.SettingsTab })),
 );
-const MobileTerminalKeyboard = lazy(() =>
-  import("@/features/terminal/MobileTerminalKeyboard").then((m) => ({
-    default: m.MobileTerminalKeyboard,
-  })),
+const PluginsTab = lazy(() =>
+  import("@/plugins/PluginsTab").then((m) => ({ default: m.PluginsTab })),
 );
-const loadFileManager = () =>
-  import("@/features/file-manager/FileManager").then((m) => ({
-    default: m.FileManager,
-  }));
-const FileManager = lazy(loadFileManager);
-const loadDockerManager = () =>
-  import("@/features/docker/DockerManager").then((m) => ({
-    default: m.DockerManager,
-  }));
-const DockerManager = lazy(loadDockerManager);
-const loadHostMetricsTab = () =>
-  import("@/features/host-metrics/HostMetricsTab").then((m) => ({
-    default: m.HostMetricsTab,
-  }));
-const HostMetricsTab = lazy(loadHostMetricsTab);
-const loadProxmoxStatsTab = () =>
-  import("@/features/proxmox-stats/ProxmoxStatsTab").then((m) => ({
-    default: m.ProxmoxStatsTab,
-  }));
-const ProxmoxStatsTab = lazy(loadProxmoxStatsTab);
-const loadTmuxMonitor = () =>
-  import("@/features/tmux-monitor/TmuxMonitor").then((m) => ({
-    default: m.TmuxMonitor,
-  }));
-const TmuxMonitor = lazy(loadTmuxMonitor);
-const loadGuacamoleApp = () =>
-  import("@/features/guacamole/GuacamoleApp").then((m) => ({
-    default: m.default,
-  }));
-const GuacamoleApp = lazy(loadGuacamoleApp);
 const DashboardTab = lazy(() =>
   import("@/dashboard/DashboardTab").then((m) => ({
     default: m.DashboardTab,
   })),
 );
-const HomepageCanvas = lazy(() =>
-  import("@/features/homepage/HomepageCanvas").then((m) => ({
-    default: m.HomepageCanvas,
-  })),
-);
-const loadTunnelTab = () =>
-  import("@/features/tunnel/TunnelTab").then((m) => ({
-    default: m.TunnelTab,
-  }));
-const TunnelTab = lazy(loadTunnelTab);
-const NetworkGraphCard = lazy(() =>
-  import("@/dashboard/cards/NetworkGraphCard").then((m) => ({
-    default: m.NetworkGraphCard,
-  })),
-);
-const Serial = lazy(() =>
-  import("@/features/serial/Serial").then((m) => ({
-    default: m.Serial,
-  })),
-);
-const FleetInventoryTab = lazy(() =>
-  import("@/sidebar/FleetInventoryTab").then((m) => ({
-    default: m.FleetInventoryTab,
-  })),
-);
-
-// Rail panels promoted to full tabs.
-const TermixIdPanel = lazy(() =>
-  import("@/sidebar/TermixIdPanel").then((m) => ({ default: m.TermixIdPanel })),
-);
-const AlertsPanel = lazy(() =>
-  import("@/sidebar/AlertsPanel").then((m) => ({ default: m.AlertsPanel })),
-);
-const SessionLogsPanel = lazy(() =>
-  import("@/sidebar/SessionLogsPanel").then((m) => ({
-    default: m.SessionLogsPanel,
-  })),
-);
-const SnippetsPanel = lazy(() =>
-  import("@/sidebar/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })),
-);
-const MacrosPanel = lazy(() =>
-  import("@/sidebar/MacrosPanel").then((m) => ({ default: m.MacrosPanel })),
-);
-const HistoryPanel = lazy(() =>
-  import("@/sidebar/HistoryPanel").then((m) => ({ default: m.HistoryPanel })),
-);
-const SshToolsPanel = lazy(() =>
-  import("@/sidebar/SshToolsPanel").then((m) => ({ default: m.SshToolsPanel })),
-);
-const AutomationsPanel = lazy(() =>
-  import("@/sidebar/AutomationsPanel").then((m) => ({
-    default: m.AutomationsPanel,
-  })),
-);
-
-const AiPanel = lazy(() =>
-  import("@/features/ai/AiPanel").then((m) => ({
-    default: m.AiPanel,
-  })),
-);
-
-const tabSurfaceLoaders: Partial<Record<TabType, () => Promise<unknown>>> = {
-  terminal: loadTerminalFeature,
-  files: loadFileManager,
-  docker: loadDockerManager,
-  "host-metrics": loadHostMetricsTab,
-  "proxmox-stats": loadProxmoxStatsTab,
-  tmux_monitor: loadTmuxMonitor,
-  tunnel: loadTunnelTab,
-  rdp: loadGuacamoleApp,
-  vnc: loadGuacamoleApp,
-  telnet: loadGuacamoleApp,
-};
 
 /** Download a likely next tab without starting a connection or mounting UI. */
 export function preloadTabSurface(type: TabType): void {
-  const loader = tabSurfaceLoaders[type];
+  const loader = getTabType(type)?.preload;
   if (loader) runAdaptiveBackgroundTask("module", `tab:${type}`, loader);
 }
 
 export function markTabSurfaceUsed(type: TabType): void {
   markAdaptiveResourceUsed("module", `tab:${type}`);
-}
-
-function hostToSSHHost(h: Host): SSHHost {
-  return {
-    id: parseInt(h.id, 10),
-    name: h.name,
-    ip: h.ip,
-    port: h.port,
-    username: h.username,
-    folder: h.folder ?? "",
-    tags: h.tags ?? [],
-    pin: h.pin ?? false,
-    authType: h.authType,
-    password: h.password,
-    hasPassword: h.hasPassword,
-    key: h.key,
-    keyPassword: h.keyPassword,
-    hasKey: h.hasKey,
-    hasKeyPassword: h.hasKeyPassword,
-    keyType: h.keyType,
-    credentialId: h.credentialId ? parseInt(h.credentialId, 10) : undefined,
-    terminalConfig: h.terminalConfig,
-    hasSudoPassword: h.hasSudoPassword,
-    enableTerminal: h.enableTerminal ?? false,
-    enableTunnel: h.enableTunnel ?? false,
-    enableFileManager: h.enableFileManager ?? false,
-    enableDocker: h.enableDocker ?? false,
-    dockerConfig: h.dockerConfig ?? null,
-    showTerminalInSidebar: true,
-    showFileManagerInSidebar: true,
-    showTunnelInSidebar: true,
-    showDockerInSidebar: true,
-    showServerStatsInSidebar: true,
-    defaultPath: h.defaultPath ?? "",
-    tunnelConnections: [],
-    connectionType: "ssh",
-    connectionOrigin: h.connectionOrigin ?? null,
-    // Carries the host's identity to a delegated backend. Without it the
-    // remote side resolves our local row id against its own table.
-    syncId: h.syncId ?? null,
-    createdAt: "",
-    updatedAt: "",
-  } as unknown as SSHHost;
 }
 
 function EmptyState({
@@ -282,426 +106,214 @@ export function tabIcon(type: TabType) {
   switch (type) {
     case "dashboard":
       return <LayoutDashboard className="size-3.5" />;
-    case "terminal":
-      return <Terminal className="size-3.5" />;
-    case "local-terminal":
-      return <TerminalSquare className="size-3.5" />;
-    case "rdp":
-      return <Monitor className="size-3.5" />;
-    case "vnc":
-      return <MousePointerClick className="size-3.5" />;
-    case "telnet":
-      return <MessagesSquare className="size-3.5" />;
-    case "ard":
-      return <ScreenShare className="size-3.5" />;
-    case "host-metrics":
-      return <Server className="size-3.5" />;
-    case "proxmox-stats":
-      return <HardDrive className="size-3.5" />;
-    case "files":
-      return <FolderSearch className="size-3.5" />;
     case "host-manager":
-      return <Server className="size-3.5" />;
+      return <LibraryBig className="size-3.5" />;
+    case "settings":
     case "user-profile":
-      return <User className="size-3.5" />;
     case "admin-settings":
       return <Settings className="size-3.5" />;
-    case "docker":
-      return <Box className="size-3.5" />;
-    case "tunnel":
-      return <Network className="size-3.5" />;
-    case "network_graph":
-      return <Network className="size-3.5" />;
-    // --- tmux-monitor ---
-    case "tmux_monitor":
-      return <Layers className="size-3.5" />;
-    case "serial":
-      return <Usb className="size-3.5" />;
-    case "homepage":
-      return <LayoutGrid className="size-3.5" />;
-    case "fleet-inventory":
-      return <Boxes className="size-3.5" />;
-    case "termix-id":
-      return <Fingerprint className="size-3.5" />;
-    case "alerts":
-      return <Plug className="size-3.5" />;
-    case "session-logs":
-      return <ScrollText className="size-3.5" />;
-    case "snippets":
-      return <Play className="size-3.5" />;
-    case "macros":
-      return <Braces className="size-3.5" />;
-    case "history":
-      return <Clock className="size-3.5" />;
-    case "ssh-tools":
-      return <Hammer className="size-3.5" />;
-    case "automations":
-      return <Workflow className="size-3.5" />;
-    case "ai":
-      return <Sparkles className="size-3.5" />;
     case "split-screen":
       return <LayoutPanelLeft className="size-3.5" />;
+    case "plugins":
+      return <Puzzle className="size-3.5" />;
+    default: {
+      const Icon = getTabType(type)?.icon;
+      return Icon ? <Icon className="size-3.5" /> : null;
+    }
   }
 }
 
-function TerminalTabContent({
+/**
+ * A plugin's tab: its registered component with the generic render props.
+ * Unregistered types get the ownership placeholder in renderTabContent.
+ */
+const RegisteredTab = memo(function RegisteredTab({
+  def,
   tab,
-  host,
-  label,
   isVisible,
   isFocusedPane,
-  onCloseTab,
-  onRenameTab,
-  onOpenFileInEditor,
-  onOpenFileManager,
-  onOpenTab,
-  onSaveQuickConnect,
+  inSplit,
+  shell,
 }: {
+  def: TabTypeDef;
   tab: Tab;
-  host: Host;
-  label: string;
   isVisible: boolean;
   isFocusedPane: boolean;
-  onCloseTab?: (id: string) => void;
-  onRenameTab?: (tabId: string, newLabel: string) => void;
-  onOpenFileInEditor?: (filePath: string) => void;
-  onOpenFileManager?: (path?: string) => void;
-  onOpenTab?: (type: TabType) => void;
-  onSaveQuickConnect?: () => Promise<void>;
+  inSplit: boolean;
+  shell: TabShellCallbacks;
 }) {
-  const { previewTerminalTheme } = useTabsSafe();
-  const isMobile = useIsMobile();
-  return withTabSuspense(
-    <CommandHistoryProvider>
-      <div className="flex flex-col h-full w-full">
-        <div className="flex-1 min-h-0">
-          <TerminalFeature
-            ref={tab.terminalRef as React.Ref<TerminalHandle>}
-            hostConfig={
-              {
-                ...hostToSSHHost(host),
-                sshPort: host.sshPort ?? host.port,
-                instanceId: tab.instanceId ?? tab.id,
-                restoredSessionId: tab.restoredSessionId ?? null,
-                joinSharedSessionId: tab.joinSharedSessionId ?? null,
-                joinShareId: tab.joinShareId ?? null,
-              } as TerminalHostConfig
-            }
-            isVisible={isVisible}
-            initialPath={tab.initialFilePath}
-            title={label}
-            showTitle={false}
-            splitScreen={false}
-            onClose={() => onCloseTab?.(tab.id)}
-            onTitleChange={
-              onRenameTab && host.terminalConfig?.useSSHTitle
-                ? (title) => onRenameTab(tab.id, title)
-                : undefined
-            }
-            previewTheme={previewTerminalTheme}
-            onOpenFileInEditor={onOpenFileInEditor}
-            onOpenFileManager={onOpenFileManager}
-            isQuickConnect={host.id.startsWith("quick-connect-")}
-            onSaveQuickConnect={onSaveQuickConnect}
-            host={host}
-            onOpenTab={onOpenTab}
-            isFocusedPane={isFocusedPane}
-          />
-        </div>
-        {isMobile && (
-          <MobileTerminalKeyboard
-            terminalRef={
-              tab.terminalRef as React.RefObject<TerminalHandle | null>
-            }
-          />
-        )}
-      </div>
-    </CommandHistoryProvider>,
+  const { host, label } = tab;
+  if (def.requiresHost && !host) {
+    return (
+      <EmptyState
+        icon={Server}
+        messageKey={def.noHostMessageKey ?? "hosts.noHostSelected"}
+      />
+    );
+  }
+  const Component = def.component;
+  const content = (
+    <Component
+      tab={tab}
+      host={host}
+      sshHost={
+        host
+          ? (hostToSSHHost(host) as unknown as Record<string, unknown>)
+          : undefined
+      }
+      label={label}
+      isVisible={isVisible}
+      isFocusedPane={isFocusedPane}
+      inSplit={inSplit}
+      handleRef={trackTabHandle(
+        tab.terminalRef as React.RefObject<unknown> | undefined,
+      )}
+      shell={shell}
+    />
   );
+  return withTabSuspense(
+    def.panelFrame ? <PanelTabFrame>{content}</PanelTabFrame> : content,
+  );
+});
+
+const DashboardTabHost = memo(function DashboardTabHost({
+  shell,
+  isVisible,
+}: {
+  shell: TabShellCallbacks;
+  isVisible: boolean;
+}) {
+  return withTabSuspense(
+    <DashboardTab
+      onOpenSingletonTab={(type, pendingEvent) => {
+        // "Add host" and friends say what to open in the Manage tab.
+        const request = pendingEvent
+          ? requestFromLegacyEvent(pendingEvent)
+          : null;
+        if (request) requestManage(request);
+        else shell.openSingletonTab(type);
+      }}
+      onOpenTab={(host, type) => shell.openTab(host, type)}
+      isVisible={isVisible}
+    />,
+  );
+});
+
+/** A rail panel opened as a tab when its plugin registers no tab of its own. */
+const PanelAsTab = memo(function PanelAsTab({
+  panel,
+  isVisible,
+  targetTab,
+  shell,
+}: {
+  panel: PanelDef;
+  isVisible: boolean;
+  targetTab?: Tab;
+  shell: TabShellCallbacks;
+}) {
+  const Panel = panel.component;
+  return withTabSuspense(
+    <PanelTabFrame>
+      <Panel
+        targetTab={targetTab}
+        active={isVisible}
+        shell={shell}
+        setEditing={noop}
+        placement="tab"
+      />
+    </PanelTabFrame>,
+  );
+});
+
+function noop() {}
+
+export interface TabRenderContext {
+  shell: TabShellCallbacks;
+  /** What the Settings tab needs from the shell. */
+  settings?: Omit<SettingsTabProps, "section" | "sectionAt">;
+  /** The terminal a panel shown as a tab sends commands to. */
+  panelTargetTab?: Tab;
+  isVisible?: boolean;
+  isFocusedPane?: boolean;
+  inSplit?: boolean;
 }
 
-/**
- * Everything the promoted rail panels need from AppShell. Passed as one bag
- * rather than more positional params, which renderTabContent already has too
- * many of.
- */
-export type PromotedPanelProps = {
-  terminalTabs?: Tab[];
-  targetTerminalTabId?: string;
-  storageMode?: "local" | "cloud";
-};
-
-export function renderTabContent(
-  tab: Tab,
-  onOpenSingletonTab?: (type: TabType) => void,
-  onOpenTab?: (host: Host, type: TabType) => void,
-  onCloseTab?: (id: string) => void,
-  isVisible = true,
-  onOpenFileInEditor?: (host: Host, filePath: string) => void,
-  onOpenFileManager?: (host: Host, path?: string) => void,
-  onOpenTerminalTab?: (host: Host, path?: string) => void,
-  onRenameTab?: (tabId: string, newLabel: string) => void,
-  onSaveQuickConnect?: (tab: Tab, host: Host) => Promise<void>,
-  isFocusedPane = true,
-  panelProps?: PromotedPanelProps,
-) {
-  const { host, label } = tab;
+export function renderTabContent(tab: Tab, context: TabRenderContext) {
+  const {
+    shell,
+    isVisible = true,
+    isFocusedPane = true,
+    inSplit = false,
+  } = context;
 
   switch (tab.type) {
     case "dashboard":
-      return withTabSuspense(
-        <DashboardTab
-          onOpenSingletonTab={onOpenSingletonTab!}
-          onOpenTab={onOpenTab!}
-          isVisible={isVisible}
-        />,
-      );
-
-    case "terminal":
-      if (!host)
-        return (
-          <EmptyState
-            icon={TerminalSquare}
-            messageKey="terminal.noHostSelected"
-          />
-        );
-      return (
-        <TerminalTabContent
-          tab={tab}
-          host={host}
-          label={label}
-          isVisible={isVisible}
-          isFocusedPane={isFocusedPane}
-          onCloseTab={onCloseTab}
-          onRenameTab={onRenameTab}
-          onOpenFileInEditor={
-            onOpenFileInEditor
-              ? (fp) => onOpenFileInEditor(host, fp)
-              : undefined
-          }
-          onOpenFileManager={
-            onOpenFileManager ? (p) => onOpenFileManager(host, p) : undefined
-          }
-          onOpenTab={onOpenTab ? (type) => onOpenTab(host, type) : undefined}
-          onSaveQuickConnect={
-            onSaveQuickConnect ? () => onSaveQuickConnect(tab, host) : undefined
-          }
-        />
-      );
-
-    case "local-terminal":
-      return withTabSuspense(
-        <LocalTerminal instanceId={tab.instanceId} isVisible={isVisible} />,
-      );
-
-    case "files":
-      if (!host)
-        return (
-          <EmptyState
-            icon={FolderSearch}
-            messageKey="fileManager.noHostSelected"
-          />
-        );
-      return withTabSuspense(
-        <FileManager
-          initialHost={hostToSSHHost(host)}
-          initialFilePath={tab.initialFilePath}
-          initialPath={tab.initialPath}
-          isVisible={isVisible}
-          onOpenTerminalTab={
-            onOpenTerminalTab
-              ? (path) => onOpenTerminalTab(host, path)
-              : undefined
-          }
-        />,
-      );
-
-    case "docker":
-      if (!host)
-        return <EmptyState icon={Box} messageKey="docker.noHostSelected" />;
-      return withTabSuspense(
-        <DockerManager
-          hostConfig={hostToSSHHost(host)}
-          title={label}
-          isVisible={isVisible}
-          isTopbarOpen={false}
-          embedded={true}
-        />,
-      );
-
-    case "host-metrics":
-      if (!host)
-        return (
-          <EmptyState icon={Activity} messageKey="hostMetrics.noHostSelected" />
-        );
-      return withTabSuspense(
-        <HostMetricsTab
-          hostConfig={hostToSSHHost(host)}
-          title={label}
-          isVisible={isVisible}
-          isTopbarOpen={false}
-          embedded={true}
-        />,
-      );
-
-    case "proxmox-stats":
-      if (!host)
-        return (
-          <EmptyState
-            icon={HardDrive}
-            messageKey="proxmoxStats.noHostSelected"
-          />
-        );
-      return withTabSuspense(
-        <ProxmoxStatsTab
-          hostConfig={hostToSSHHost(host)}
-          title={label}
-          isVisible={isVisible}
-          isTopbarOpen={false}
-          embedded={true}
-        />,
-      );
-
-    case "tunnel":
-      return withTabSuspense(
-        <TunnelTab label={label} host={host} isVisible={isVisible} />,
-      );
-
-    case "rdp":
-    case "vnc":
-    case "telnet":
-    case "ard":
-      if (!host)
-        return (
-          <EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />
-        );
-      return withTabSuspense(
-        <GuacamoleApp
-          ref={tab.terminalRef as React.Ref<GuacamoleAppHandle>}
-          hostId={host.id}
-          tabId={tab.id}
-          protocol={tab.type as "rdp" | "vnc" | "telnet" | "ard"}
-          isVisible={isVisible}
-        />,
-      );
-
-    case "network_graph":
-      return withTabSuspense(
-        <NetworkGraphCard embedded={false} isVisible={isVisible} />,
-      );
-
-    // --- tmux-monitor ---
-    case "tmux_monitor":
-      return withTabSuspense(
-        <TmuxMonitor
-          initialHostId={host ? parseInt(host.id, 10) : undefined}
-          isVisible={isVisible}
-        />,
-      );
-
-    case "serial":
-      if (!tab.serialConfig)
-        return <EmptyState icon={Usb} messageKey="serial.notSupportedTitle" />;
-      return withTabSuspense(
-        <Serial
-          ref={tab.terminalRef as React.Ref<SerialHandle>}
-          config={tab.serialConfig}
-          isVisible={isVisible}
-          instanceId={tab.instanceId}
-        />,
-      );
-
-    case "homepage":
-      return withTabSuspense(<HomepageCanvas />);
-
-    case "fleet-inventory":
-      return withTabSuspense(
-        <FleetInventoryTab fleetId={tab.fleetId} isVisible={isVisible} />,
-      );
-
-    case "termix-id":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <TermixIdPanel />
-        </PanelTabFrame>,
-      );
-
-    case "alerts":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <AlertsPanel />
-        </PanelTabFrame>,
-      );
-
-    case "session-logs":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <SessionLogsPanel />
-        </PanelTabFrame>,
-      );
-
-    case "automations":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <AutomationsPanel active={isVisible} />
-        </PanelTabFrame>,
-      );
-
-    case "ai":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <AiPanel />
-        </PanelTabFrame>,
-      );
+      return <DashboardTabHost shell={shell} isVisible={isVisible} />;
 
     case "split-screen":
       return null;
 
-    case "snippets":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <SnippetsPanel
-            terminalTabs={panelProps?.terminalTabs ?? []}
-            activeTabId={panelProps?.targetTerminalTabId ?? ""}
-            storageMode={panelProps?.storageMode ?? "local"}
-          />
-        </PanelTabFrame>,
-      );
-
-    case "macros":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <MacrosPanel
-            terminalTabs={panelProps?.terminalTabs ?? []}
-            activeTabId={panelProps?.targetTerminalTabId ?? ""}
-            storageMode={panelProps?.storageMode ?? "local"}
-          />
-        </PanelTabFrame>,
-      );
-
-    case "history":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <HistoryPanel
-            terminalTabs={panelProps?.terminalTabs ?? []}
-            activeTabId={panelProps?.targetTerminalTabId ?? ""}
-          />
-        </PanelTabFrame>,
-      );
-
-    case "ssh-tools":
-      return withTabSuspense(
-        <PanelTabFrame>
-          <SshToolsPanel
-            terminalTabs={panelProps?.terminalTabs ?? []}
-            activeTabId={panelProps?.targetTerminalTabId ?? ""}
-          />
-        </PanelTabFrame>,
-      );
-
     case "host-manager":
+      return withTabSuspense(<ManageTab />);
+
+    case "plugins":
+      return withTabSuspense(<PluginsTab />);
+
+    case "settings":
+      return context.settings
+        ? withTabSuspense(
+            <SettingsTab
+              {...context.settings}
+              section={
+                typeof tab.data?.section === "string"
+                  ? tab.data.section
+                  : undefined
+              }
+              sectionAt={
+                typeof tab.data?.revealAt === "number" ||
+                typeof tab.data?.revealAt === "string"
+                  ? tab.data.revealAt
+                  : undefined
+              }
+              reveal={
+                typeof tab.data?.reveal === "string"
+                  ? `${tab.data.reveal}@${String(tab.data.revealAt ?? "")}`
+                  : undefined
+              }
+            />,
+          )
+        : null;
+
     case "user-profile":
     case "admin-settings":
       return null;
+
+    default: {
+      const def = getTabType(tab.type);
+      if (!def) {
+        const panel = getPanel(tab.type);
+        if (panel) {
+          return (
+            <PanelAsTab
+              panel={panel}
+              isVisible={isVisible}
+              targetTab={context.panelTargetTab}
+              shell={shell}
+            />
+          );
+        }
+        return <PluginViewPlaceholder kind="tab" viewId={tab.type} />;
+      }
+      return (
+        <RegisteredTab
+          def={def}
+          tab={tab}
+          isVisible={isVisible}
+          isFocusedPane={isFocusedPane}
+          inSplit={inSplit}
+          shell={shell}
+        />
+      );
+    }
   }
 }

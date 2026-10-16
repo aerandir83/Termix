@@ -1,18 +1,7 @@
-import { afterEach, vi } from "vitest";
+/**
+ * Core's vitest setup.
+ *
+ * The polyfills live in the SDK so core and every plugin suite share one copy.
+ */
 
-if (typeof window !== "undefined" && !window.matchMedia) {
-  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  }));
-}
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+import "@termix-ssh/plugin-sdk/testing/setup";

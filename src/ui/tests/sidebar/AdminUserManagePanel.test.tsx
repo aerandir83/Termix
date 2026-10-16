@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AdminUserManagePanel } from "../../sidebar/AdminUserManagePanel";
+import { SurfaceScope } from "@/components/surface/surface-scope";
 import type { AdminUser } from "../../sidebar/AdminManagementSections";
 
 const api = vi.hoisted(() => ({
@@ -10,12 +11,7 @@ const api = vi.hoisted(() => ({
   adminDeleteUserHost: vi.fn(async () => ({})),
   adminGetUserCredentials: vi.fn(async () => [] as unknown[]),
   adminDeleteUserCredential: vi.fn(async () => ({})),
-  adminGetUserSnippets: vi.fn(async () => [] as unknown[]),
-  adminCreateUserSnippet: vi.fn(async () => ({})),
-  adminUpdateUserSnippet: vi.fn(async () => ({})),
-  adminDeleteUserSnippet: vi.fn(async () => ({})),
   adminResetUserPassword: vi.fn(async () => ({ dataWiped: false })),
-  adminDisableUserTotp: vi.fn(async () => ({})),
   adminExportUserData: vi.fn(async () => ({})),
   getSessions: vi.fn(async () => ({ sessions: [] as unknown[] })),
   revokeSession: vi.fn(async () => ({})),
@@ -24,6 +20,7 @@ const api = vi.hoisted(() => ({
   createApiKey: vi.fn(async () => ({})),
   deleteApiKey: vi.fn(async () => ({})),
   deleteUser: vi.fn(async () => ({})),
+  getUserList: vi.fn(async () => ({ users: [] })),
   getUserRoles: vi.fn(async () => ({ roles: [] as unknown[] })),
   assignRoleToUser: vi.fn(async () => ({})),
   removeRoleFromUser: vi.fn(async () => ({})),
@@ -52,10 +49,9 @@ function makeUser(overrides: Partial<AdminUser> = {}): AdminUser {
     id: "u2",
     username: "bob",
     isAdmin: false,
-    isOidc: false,
+    isExternal: false,
     passwordHash: "hash",
     dataUnlocked: true,
-    totpEnabled: false,
     ...overrides,
   };
 }
@@ -65,18 +61,33 @@ function renderPanel(
   callbacks: Partial<Record<string, () => void>> = {},
 ) {
   return render(
-    <AdminUserManagePanel
-      user={user}
-      roles={[]}
-      onBack={callbacks.onBack ?? vi.fn()}
-      onOpenHostTab={callbacks.onOpenHostTab as never}
-      onUserDeleted={callbacks.onUserDeleted ?? vi.fn()}
-      onTotpDisabled={callbacks.onTotpDisabled ?? vi.fn()}
-    />,
+    <SurfaceScope>
+      <AdminUserManagePanel
+        user={user}
+        roles={[]}
+        onBack={callbacks.onBack ?? vi.fn()}
+        onOpenHostTab={callbacks.onOpenHostTab as never}
+        onUserDeleted={callbacks.onUserDeleted ?? vi.fn()}
+        onSecondFactorsReset={callbacks.onSecondFactorsReset ?? vi.fn()}
+      />
+    </SurfaceScope>,
   );
 }
 
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   for (const fn of Object.values(api)) fn.mockClear();
 });
 
@@ -88,7 +99,6 @@ describe("AdminUserManagePanel", () => {
       "admin.manageTabAccount",
       "admin.manageTabHosts",
       "admin.manageTabCredentials",
-      "admin.manageTabSnippets",
       "admin.manageTabSessions",
       "admin.manageTabDanger",
     ]) {
@@ -98,7 +108,6 @@ describe("AdminUserManagePanel", () => {
     await waitFor(() => {
       expect(api.adminGetUserHosts).toHaveBeenCalledWith("u2");
       expect(api.adminGetUserCredentials).toHaveBeenCalledWith("u2");
-      expect(api.adminGetUserSnippets).toHaveBeenCalledWith("u2");
       expect(api.getUserRoles).toHaveBeenCalledWith("u2");
     });
   });
@@ -114,7 +123,6 @@ describe("AdminUserManagePanel", () => {
 
     expect(api.adminGetUserHosts).not.toHaveBeenCalled();
     expect(api.adminGetUserCredentials).not.toHaveBeenCalled();
-    expect(api.adminGetUserSnippets).not.toHaveBeenCalled();
   });
 
   it("lists the user's hosts and opens a tab via the connect button", async () => {
@@ -143,43 +151,43 @@ describe("AdminUserManagePanel", () => {
     });
   });
 
-  it("disables TOTP through the confirm dialog", async () => {
-    const onTotpDisabled = vi.fn();
-    renderPanel(makeUser({ totpEnabled: true }), { onTotpDisabled });
-
-    expect(screen.getByText("admin.totpStatusEnabled")).toBeTruthy();
-    await userEvent.click(screen.getByText("admin.disableTotp"));
-    await userEvent.click(screen.getByText("common.confirm"));
-
-    await waitFor(() => {
-      expect(api.adminDisableUserTotp).toHaveBeenCalledWith("u2");
-      expect(onTotpDisabled).toHaveBeenCalled();
+  it("shows a tab a plugin contributes, with the user it manages", async () => {
+    const { registerSlotContribution } =
+      await import("../../shell/action-registry");
+    const dispose = registerSlotContribution("admin.userTabs", {
+      actionId: "fixture.adminTab",
+      titleKey: "fixture.tabTitle",
+      kind: "component",
+      component: ((props: { user: AdminUser }) => (
+        <div>managing {props.user.username}</div>
+      )) as never,
     });
-    expect(screen.getByText("admin.totpStatusDisabled")).toBeTruthy();
+    try {
+      renderPanel(makeUser());
+      await userEvent.click(screen.getByText("fixture.tabTitle"));
+      expect(screen.getByText("managing bob")).toBeTruthy();
+    } finally {
+      dispose();
+    }
   });
 
-  it("creates a snippet for the target user", async () => {
-    renderPanel(makeUser());
-
-    await userEvent.click(screen.getByText("admin.manageTabSnippets"));
-    await userEvent.click(screen.getByText("admin.addSnippetForUser"));
-    await userEvent.type(
-      screen.getByPlaceholderText("admin.snippetNamePlaceholder"),
-      "restart",
-    );
-    await userEvent.type(
-      screen.getByPlaceholderText("admin.snippetContentPlaceholder"),
-      "systemctl restart nginx",
-    );
-    await userEvent.click(screen.getByText("common.save"));
-
-    await waitFor(() => {
-      expect(api.adminCreateUserSnippet).toHaveBeenCalledWith("u2", {
-        name: "restart",
-        content: "systemctl restart nginx",
-        folder: null,
-      });
+  it("shows the locked notice instead of a plugin tab while data is locked", async () => {
+    const { registerSlotContribution } =
+      await import("../../shell/action-registry");
+    const dispose = registerSlotContribution("admin.userTabs", {
+      actionId: "fixture.adminTab",
+      titleKey: "fixture.tabTitle",
+      kind: "component",
+      component: (() => <div>plugin content</div>) as never,
     });
+    try {
+      renderPanel(makeUser({ dataUnlocked: false }));
+      await userEvent.click(screen.getByText("fixture.tabTitle"));
+      expect(screen.queryByText("plugin content")).toBeNull();
+      expect(screen.getByText("admin.dataLockedNotice")).toBeTruthy();
+    } finally {
+      dispose();
+    }
   });
 
   it("deletes the user from the danger tab after confirmation", async () => {
@@ -188,7 +196,7 @@ describe("AdminUserManagePanel", () => {
 
     await userEvent.click(screen.getByText("admin.manageTabDanger"));
     await userEvent.click(screen.getByText("admin.deleteUser"));
-    await userEvent.click(screen.getByText("common.confirm"));
+    await userEvent.click(screen.getByText("common.delete"));
 
     await waitFor(() => {
       expect(api.deleteUser).toHaveBeenCalledWith("bob");

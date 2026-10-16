@@ -6,129 +6,81 @@ import "./ui/index.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./ui/i18n/i18n";
 import { isElectron } from "@/lib/electron";
+import { getEmbeddedServerFailure } from "@/lib/embedded-server-status";
 import { Toaster } from "@/components/sonner";
-import { Auth, getStoredAuth, clearStoredAuth } from "@/auth/Auth";
+import {
+  Auth,
+  getStoredAuth,
+  clearStoredAuth,
+  markDesktopManualLogout,
+  clearDesktopManualLogout,
+} from "@/auth/Auth";
 import { getUserInfo, getCurrentToken, appReadyPromise } from "@/main-axios";
-import { applyAccentColor, applyFontSize } from "@/lib/theme";
+import { applyAccentColor, applyFontSize, applyUiFont } from "@/lib/theme";
 import { installElectronWheelZoomGuard } from "@/lib/electron-wheel-zoom";
-import type { FontSizeId } from "@/types/ui-types";
+import type { FontSizeId, UiFontId } from "@/types/ui-types";
 import { useServiceWorker } from "@/hooks/use-service-worker";
 import { useTranslation } from "react-i18next";
 import { UiPreferencesProvider } from "@/contexts/UiPreferencesContext";
-import { ConnectionDefaultsProvider } from "@/contexts/ConnectionDefaultsContext";
+import { BrandingProvider } from "@/contexts/BrandingContext";
+import {
+  fetchGuestViews,
+  startPluginRuntime,
+  stopPluginRuntime,
+} from "@/plugin-host/loader";
+import { settledPromise } from "@/plugin-host/plugin-store";
+import { resetShellBridge } from "@/plugin-host/shell-bridge";
+import { preloadPermissions } from "@/hooks/use-permissions";
+import { getUserPreferences } from "@/api/open-tabs-api";
+import { standaloneViewFor } from "@/shell/tab-registry";
+import { PluginViewPlaceholder } from "@/plugin-host/PluginViewPlaceholder";
+import {
+  resolveStartupOnboarding,
+  type StartupOnboarding,
+} from "@/onboarding/startup";
 
 const AppShell = lazy(() =>
   import("@/AppShell").then((m) => ({ default: m.AppShell })),
 );
-
-// Full-screen apps opened via query params (e.g. from external links or Electron)
-const TerminalApp = lazy(() =>
-  import("@/features/terminal/TerminalApp").then((m) => ({
-    default: m.default,
+const OnboardingStage = lazy(() =>
+  import("@/onboarding/OnboardingStage").then((m) => ({
+    default: m.OnboardingStage,
   })),
-);
-const FileManagerApp = lazy(() =>
-  import("@/features/file-manager/FileManagerApp").then((m) => ({
-    default: m.default,
-  })),
-);
-const TunnelApp = lazy(() =>
-  import("@/features/tunnel/TunnelApp").then((m) => ({ default: m.default })),
-);
-const HostMetricsApp = lazy(() =>
-  import("@/features/host-metrics/HostMetricsApp").then((m) => ({
-    default: m.default,
-  })),
-);
-const ProxmoxStatsApp = lazy(() =>
-  import("@/features/proxmox-stats/ProxmoxStatsApp").then((m) => ({
-    default: m.default,
-  })),
-);
-const DockerApp = lazy(() =>
-  import("@/features/docker/DockerApp").then((m) => ({ default: m.default })),
-);
-const GuacamoleApp = lazy(() =>
-  import("@/features/guacamole/GuacamoleApp").then((m) => ({
-    default: m.default,
-  })),
-);
-// --- tmux-monitor ---
-const TmuxMonitorApp = lazy(() =>
-  import("@/features/tmux-monitor/TmuxMonitorApp").then((m) => ({
-    default: m.default,
-  })),
-);
-
-const HomepageApp = lazy(() =>
-  import("@/features/homepage/HomepageApp").then((m) => ({
-    default: m.default,
-  })),
-);
-
-const ElectronVersionCheck = lazy(() =>
-  import("@/user/ElectronVersionCheck").then((module) => ({
-    default: module.ElectronVersionCheck,
-  })),
-);
-
-// Anonymous guest view for shared terminal/RDP/VNC/Telnet sessions (?view=shared&token=<linkToken>).
-// Rendered outside FullscreenAppGate since guests never have a JWT/cookie to verify.
-const SharedSessionView = lazy(
-  () => import("@/features/session-sharing/SharedSessionView"),
 );
 
 type Phase =
-  "verifying" | "idle-auth" | "fading-in" | "idle-app" | "fading-out";
+  | "verifying"
+  | "idle-auth"
+  | "loading-app"
+  | "onboarding"
+  | "fading-in"
+  | "idle-app"
+  | "fading-out";
+
+type LogoutOptions = {
+  manual?: boolean;
+};
 
 function FullscreenApp() {
   const searchParams = new URLSearchParams(window.location.search);
   const view = searchParams.get("view");
   const hostId = searchParams.get("hostId");
-  const tmuxSession = searchParams.get("tmuxSession");
-  const path = searchParams.get("path");
 
   switch (view) {
-    case "terminal":
+    default: {
+      const def = view ? standaloneViewFor(view) : undefined;
+      if (!def?.standalone) {
+        return view ? <PluginViewPlaceholder kind="tab" viewId={view} /> : null;
+      }
+      const Standalone = def.standalone;
       return (
-        <TerminalApp
+        <Standalone
           hostId={hostId || undefined}
-          tmuxSession={tmuxSession || undefined}
+          view={view!}
+          params={searchParams}
         />
       );
-    case "file-manager":
-      return (
-        <FileManagerApp
-          hostId={hostId || undefined}
-          initialPath={path || undefined}
-        />
-      );
-    case "tunnel":
-      return <TunnelApp hostId={hostId || undefined} />;
-    case "host-metrics":
-    case "server-stats":
-      return <HostMetricsApp hostId={hostId || undefined} />;
-    case "proxmox-stats":
-      return <ProxmoxStatsApp hostId={hostId || undefined} />;
-    case "docker":
-      return <DockerApp hostId={hostId || undefined} />;
-    case "rdp":
-    case "vnc":
-    case "telnet":
-    case "ard":
-      return (
-        <GuacamoleApp
-          hostId={hostId || undefined}
-          protocol={view as "rdp" | "vnc" | "telnet" | "ard"}
-        />
-      );
-    case "tmux-monitor": // --- tmux-monitor ---
-    case "tmux_monitor": // tab type spelling, so copied links also resolve
-      return <TmuxMonitorApp hostId={hostId || undefined} />;
-    case "homepage":
-      return <HomepageApp />;
-    default:
-      return null;
+    }
   }
 }
 
@@ -151,6 +103,9 @@ function FullscreenAppGate() {
             // WebSocket connections can still fall back to cookie auth.
           }
         }
+        // Plugin views (metrics, Docker, remote desktop) register their
+        // full-screen component when their plugin starts.
+        await startPluginRuntime().catch(() => {});
         if (!cancelled) setReady(true);
       })
       .catch(() => {
@@ -187,11 +142,8 @@ function App() {
   );
   const [authUsername, setAuthUsername] = useState(stored?.username ?? "");
   const [verifyRetryCount, setVerifyRetryCount] = useState(0);
+  const [startup, setStartup] = useState<StartupOnboarding | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Track whether fading-in came from a fresh login (vs. session verification on page load).
-  // When session-verified, Auth must not mount during the transition — it would trigger
-  // silent OIDC redirect and cause an infinite refresh loop.
-  const fadingInFromLoginRef = useRef(false);
   // Dedupes concurrent handleLogout() calls within the same tick -- see
   // handleLogout for why phase state alone isn't sufficient for this.
   const loggingOutRef = useRef(false);
@@ -203,6 +155,10 @@ function App() {
       "termix-font-size",
     ) as FontSizeId | null;
     applyFontSize(savedSize ?? "md");
+    applyUiFont(
+      (localStorage.getItem("termix-ui-font") as UiFontId | null) ??
+        "jetbrains-mono",
+    );
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
@@ -220,25 +176,20 @@ function App() {
         if (isElectron()) {
           try {
             const token = await getCurrentToken();
-            if (token) {
-              localStorage.setItem("jwt", token);
-              // Remote Sync's engine (main process) needs this local JWT to
-              // authenticate against the embedded backend during sync, same
-              // as a fresh login provides via handleLogin below -- a session
-              // restore (the common case on every normal launch) must hand
-              // it over too, or sync silently never runs after the first
-              // app restart.
-              window.electronAPI
-                ?.invoke?.("notify-local-login", token)
-                .catch(() => {});
-            }
+            if (token) localStorage.setItem("jwt", token);
           } catch {
             // Non-fatal: WebSocket connections will fall back to cookie auth
           }
         }
-        fadingInFromLoginRef.current = false;
-        setPhase("fading-in");
-        timerRef.current = setTimeout(() => setPhase("idle-app"), 450);
+        setPhase("loading-app");
+        await Promise.all([
+          startPluginRuntime()
+            .catch(() => {})
+            .then(() => settledPromise()),
+          preloadPermissions(),
+          getUserPreferences().catch(() => undefined),
+        ]);
+        await enterApp();
       })
       .catch((err: unknown) => {
         // Only treat a genuine auth rejection (401/403) as "not logged in".
@@ -269,33 +220,66 @@ function App() {
           setPhase("idle-auth");
           return;
         }
-        const delay = isElectron()
-          ? Math.min(1000 * 2 ** verifyRetryCount, 10000)
-          : 3000;
-        timerRef.current = setTimeout(() => {
-          setVerifyRetryCount((c) => c + 1);
-        }, delay);
+        // "Always eventually comes up" holds only while the embedded
+        // backend is still booting. If the main process reports it exited
+        // for good -- a port conflict being by far the most common cause --
+        // retrying forever leaves the user on an endless spinner with no
+        // hint of what is wrong, so hand over to Auth, which reports the
+        // reason instead.
+        void getEmbeddedServerFailure().then((failure) => {
+          if (failure) {
+            setPhase("idle-auth");
+            return;
+          }
+          const delay = isElectron()
+            ? Math.min(1000 * 2 ** verifyRetryCount, 10000)
+            : 3000;
+          timerRef.current = setTimeout(() => {
+            setVerifyRetryCount((c) => c + 1);
+          }, delay);
+        });
       });
+    // enterApp only touches state setters and refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, verifyRetryCount]);
+
+  function fadeIntoApp() {
+    setPhase("fading-in");
+    timerRef.current = setTimeout(() => setPhase("idle-app"), 450);
+  }
+
+  /** Opens on onboarding first when there is something to show. */
+  async function enterApp() {
+    const plan = await resolveStartupOnboarding().catch(() => null);
+    setStartup(plan);
+    if (plan?.mode) {
+      setPhase("onboarding");
+      return;
+    }
+    fadeIntoApp();
+  }
 
   function handleLogin(u: string) {
     loggingOutRef.current = false;
+    clearDesktopManualLogout();
     setAuthUsername(u);
-    fadingInFromLoginRef.current = true;
-    setPhase("fading-in");
-    timerRef.current = setTimeout(() => setPhase("idle-app"), 450);
+    setPhase("loading-app");
+    void (async () => {
+      await Promise.all([
+        startPluginRuntime()
+          .catch(() => {})
+          .then(() => settledPromise()),
+        preloadPermissions(),
+        getUserPreferences().catch(() => undefined),
+      ]);
+      await enterApp();
+    })();
     if (isElectron()) {
       window.electronAPI?.startC2SAutoStartTunnels?.().catch(() => {});
-      const localJwt = localStorage.getItem("jwt");
-      if (localJwt) {
-        window.electronAPI
-          ?.invoke?.("notify-local-login", localJwt)
-          .catch(() => {});
-      }
     }
   }
 
-  function handleLogout() {
+  function handleLogout(options?: LogoutOptions) {
     // A single background hiccup can trigger several independent 401s at
     // once (e.g. a burst of unrelated polls all failing together in the
     // same tick), each calling this. React batches the resulting setPhase
@@ -308,9 +292,34 @@ function App() {
     // isn't subject to batching, so it correctly dedupes within one tick.
     if (loggingOutRef.current) return;
     loggingOutRef.current = true;
+    // The next user may see different plugins, so nothing they registered
+    // should survive into the next session.
+    void stopPluginRuntime();
+    resetShellBridge();
     clearStoredAuth();
+    localStorage.removeItem("jwt");
+    if (isElectron() && options?.manual) {
+      markDesktopManualLogout();
+    }
+    if (isElectron()) {
+      window.electronAPI?.clearSessionCookies?.().catch(() => {});
+    } else {
+      const isSecure = window.location.protocol === "https:";
+      document.cookie = isSecure
+        ? "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; Secure; SameSite=Lax"
+        : "jwt=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax";
+    }
+    // The app never mounted, so there is nothing to fade out of.
+    if (phase === "onboarding") {
+      setStartup(null);
+      setAuthUsername("");
+      setPhase("idle-auth");
+      loggingOutRef.current = false;
+      return;
+    }
     setPhase("fading-out");
     timerRef.current = setTimeout(() => {
+      setStartup(null);
       setAuthUsername("");
       setPhase("idle-auth");
       loggingOutRef.current = false;
@@ -319,17 +328,14 @@ function App() {
 
   const showApp =
     phase === "idle-app" || phase === "fading-in" || phase === "fading-out";
-  const showAuth =
-    phase === "idle-auth" ||
-    (phase === "fading-in" && fadingInFromLoginRef.current) ||
-    phase === "fading-out";
+  const showAuth = phase === "idle-auth" || phase === "fading-out";
   const appOpacity = phase === "idle-app" ? 1 : 0;
   const authOpacity = phase === "idle-auth" ? 1 : 0;
 
   const { t } = useTranslation();
   const isTransitioning = phase === "fading-in" || phase === "fading-out";
 
-  if (phase === "verifying") {
+  if (phase === "verifying" || phase === "loading-app") {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -353,22 +359,35 @@ function App() {
         </div>
       )}
 
-      {showApp && (
-        <div
-          className="fixed inset-0 z-10 transition-opacity duration-[450ms] ease-in-out"
-          style={{
-            opacity: appOpacity,
-            pointerEvents: phase === "idle-app" ? "auto" : "none",
-          }}
-        >
-          <Suspense fallback={null}>
-            <UiPreferencesProvider>
-              <ConnectionDefaultsProvider>
+      {(showApp || phase === "onboarding") && (
+        // One provider from onboarding into the app, so nothing chosen in
+        // onboarding is lost or fetched twice on the way.
+        <UiPreferencesProvider initial={startup?.preferences}>
+          {phase === "onboarding" && startup?.mode && (
+            <Suspense fallback={null}>
+              <OnboardingStage
+                mode={startup.mode}
+                initialPlugins={startup.plugins}
+                shellReady={false}
+                onDone={fadeIntoApp}
+                onLogout={() => handleLogout({ manual: true })}
+              />
+            </Suspense>
+          )}
+          {showApp && (
+            <div
+              className="fixed inset-0 z-10 transition-opacity duration-[450ms] ease-in-out"
+              style={{
+                opacity: appOpacity,
+                pointerEvents: phase === "idle-app" ? "auto" : "none",
+              }}
+            >
+              <Suspense fallback={null}>
                 <AppShell username={authUsername} onLogout={handleLogout} />
-              </ConnectionDefaultsProvider>
-            </UiPreferencesProvider>
-          </Suspense>
-        </div>
+              </Suspense>
+            </div>
+          )}
+        </UiPreferencesProvider>
       )}
 
       {showAuth && (
@@ -388,40 +407,60 @@ function App() {
   );
 }
 
-function RootApp() {
-  const [showVersionCheck, setShowVersionCheck] = useState(true);
+/**
+ * An anonymous guest link (a shared session, a collab room). The view comes
+ * from a guest plugin's standalone tab view, so the guest-capable plugins
+ * load first, without a session.
+ */
+function GuestView({ view }: { view: string }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    startPluginRuntime({ guest: true })
+      .catch(() => {})
+      .finally(() => setReady(true));
+  }, []);
+  if (!ready) return null;
+  const def = standaloneViewFor(view);
+  if (!def?.standalone) {
+    return <PluginViewPlaceholder kind="tab" viewId={view} />;
+  }
+  const Standalone = def.standalone;
+  return (
+    <Standalone
+      view={view}
+      params={new URLSearchParams(window.location.search)}
+    />
+  );
+}
 
+/**
+ * Picks between a guest link and a signed-in full-screen view. Guests never
+ * have a JWT or cookie to verify, so a guest view skips FullscreenAppGate.
+ */
+function ViewRouter({ view }: { view: string }) {
+  const [guestViews, setGuestViews] = useState<string[] | null>(null);
+  useEffect(() => {
+    void fetchGuestViews().then(setGuestViews);
+  }, []);
+  if (!guestViews) return null;
+  if (guestViews.includes(view)) return <GuestView view={view} />;
+  return (
+    <UiPreferencesProvider>
+      <FullscreenAppGate />
+    </UiPreferencesProvider>
+  );
+}
+
+function RootApp() {
   useServiceWorker();
 
   const searchParams = new URLSearchParams(window.location.search);
-  const isFullscreen = searchParams.has("view");
+  const view = searchParams.get("view");
 
-  // Anonymous guests have no cookie/JWT at all, so this bypasses FullscreenAppGate's
-  // auth check entirely rather than waiting on a getUserInfo() call that would always fail.
-  if (searchParams.get("view") === "shared") {
+  if (view !== null) {
     return (
       <Suspense fallback={null}>
-        <SharedSessionView />
-      </Suspense>
-    );
-  }
-
-  if (isFullscreen) {
-    return (
-      <Suspense fallback={null}>
-        <UiPreferencesProvider>
-          <ConnectionDefaultsProvider>
-            <FullscreenAppGate />
-          </ConnectionDefaultsProvider>
-        </UiPreferencesProvider>
-      </Suspense>
-    );
-  }
-
-  if (isElectron() && showVersionCheck) {
-    return (
-      <Suspense fallback={null}>
-        <ElectronVersionCheck onContinue={() => setShowVersionCheck(false)} />
+        <ViewRouter view={view} />
       </Suspense>
     );
   }
@@ -435,7 +474,9 @@ prepareClientCacheVersion().finally(() => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-        <RootApp />
+        <BrandingProvider>
+          <RootApp />
+        </BrandingProvider>
       </ThemeProvider>
     </StrictMode>,
   );
